@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run python scripts/query_cli.py --search-only \"로그인 API 500 에러\")",
+      "Bash(uv run python -c \":*)",
+      "Bash(python3 -c \"print\\(''hello'', flush=True\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(.venv/bin/python -c \":*)",
+      "Bash(.venv/bin/python -c \"print\\(''test''\\)\")",
+      "Bash(.venv/bin/python -c \"import sys; sys.path.insert\\(0,''.''\\)\")",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test_query.py)",
+      "Bash(/tmp/test2.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test2.py)",
+      "Bash(/tmp/test3.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test3.py)",
+      "Bash(/tmp/test4.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test4.py)",
+      "Bash(/tmp/test5.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test5.py)",
+      "Bash(/tmp/test6.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test6.py)",
+      "Bash(/tmp/test7.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test7.py)",
+      "Bash(/tmp/test8.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test8.py)",
+      "Bash(/tmp/test9.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/test9.py)",
+      "Bash(/tmp/testa.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/testa.py)",
+      "Bash(/tmp/testb.py:*)",
+      "Bash(/Users/yg/project/cc-project/issue-pipeline/.venv/bin/python /tmp/testb.py)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git init)",
+      "Bash(git add .gitignore .env.example .python-version README.md pyproject.toml)",
+      "Bash(git add data/raw/ scripts/ src/ tests/)",
+      "Bash(git commit:*)",
+      "Bash(git remote add origin https://github.com/ygyun3937/pipeline.git)",
+      "Bash(git push -u origin main)",
+      "Bash(gh auth status)",
+      "Bash(git credential-cache --help)",
+      "Bash(git config --list)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
