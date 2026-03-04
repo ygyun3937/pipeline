@@ -1,0 +1,75 @@
+[project]
+name = "issue-pipeline"
+version = "0.1.0"
+description = "사내 버그/이슈 문서를 RAG로 처리하는 지식 파이프라인"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Claude Agent SDK (API 키 불필요, Claude Code 구독 사용)
+    "claude-agent-sdk>=0.0.14",
+    # LangChain 핵심
+    "langchain>=0.3.0",
+    "langchain-chroma>=0.2.0",
+    "langchain-community>=0.3.0",
+    # 로컬 임베딩 (ONNX 기반, API 키/PyTorch 불필요)
+    "fastembed>=0.4.0",
+    # 벡터 DB (x86_64 Mac 호환 버전 고정)
+    "chromadb>=0.5.0,<0.6.0",
+    # API 서버
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    # 문서 파싱
+    "pypdf>=5.0.0",
+    "pymupdf>=1.25.0",
+    # 유틸리티
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "httpx>=0.28.0",
+    "tenacity>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
+    "httpx>=0.28.0",
+]
+
+[project.scripts]
+index-docs = "scripts.index_documents:main"
+start-api = "scripts.start_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+# x86_64 macOS에서 onnxruntime 호환 버전 고정
+# onnxruntime 1.20.x 이하는 macosx_10_15_x86_64 휠 지원
+[tool.uv]
+override-dependencies = [
+    "onnxruntime>=1.17.0,<1.20.0",
+]
