@@ -1,0 +1,55 @@
+# QA 검증 기준 설정 파일 (사내 커스텀)
+# 이 파일을 수정하여 프로젝트에 맞는 QA 기준을 설정하세요.
+# API 재시작 없이 핫리로드로 변경사항이 즉시 반영됩니다.
+
+version: "1.0"
+
+reproducibility:
+  required: true
+  min_steps: 2
+  environment_required: true
+
+measurability:
+  required: true
+  quantitative_criteria_required: false
+  binary_verdict_required: true
+
+acceptance_criteria:
+  required: true
+  explicit_criteria_required: true
+  min_criteria_count: 1
+
+test_scope:
+  level: "integration"   # unit | integration | e2e | all
+  automation_required: false
+  manual_acceptable: true
+
+severity_overrides:
+  Critical:
+    automation_required: true
+    min_steps: 1
+  High:
+    automation_required: false
+    min_steps: 2
+  Medium:
+    manual_acceptable: true
+  Low:
+    manual_acceptable: true
+    quantitative_criteria_required: false
+
+custom_rules:
+  - "보안 관련 이슈는 항상 'testable' 판정을 받아야 합니다."
+  - "외부 서비스 의존성이 있는 경우 Mock 사용 여부를 명시해야 합니다."
+  # 추가 규칙을 아래에 작성하세요:
+  # - "..."
+
+report:
+  language: "ko"
+  filename_prefix: "QA_REPORT"
+  sections:
+    - "이슈 개요"
+    - "테스트 가능성 평가"
+    - "테스트 결과 요약"
+    - "실패 케이스 상세"
+    - "권장 테스트 케이스"
+    - "결론 및 권고사항"
