@@ -63,9 +63,12 @@ class TestResultSet:
         파싱에 실패하여 test_cases가 비어 있으면 원본 내용을 직접 반환한다.
         """
         if not self.test_cases and self.total == 0:
+            content_preview = self.raw_content[:3000]
+            truncated = len(self.raw_content) > 3000
+            suffix = f"\n... (이하 {len(self.raw_content) - 3000}자 생략)" if truncated else ""
             return (
-                f"테스트 결과 파싱 불가 - 원본 내용 ({len(self.raw_content)}자)을"
-                f" 직접 Claude에 전달합니다.\n\n원본:\n{self.raw_content[:3000]}"
+                f"테스트 결과 파싱 불가 - 원본 내용 ({len(self.raw_content)}자)을 직접 Claude에 전달합니다."
+                f"\n\n원본:\n{content_preview}{suffix}"
             )
 
         lines = [
@@ -94,6 +97,9 @@ class TestResultParser:
     파일 확장자 또는 media_type을 기반으로 포맷을 자동 감지하며,
     파싱 실패 시 raw_content를 포함한 fallback TestResultSet을 반환한다.
     """
+
+    # GFM 정렬 구분선 셀 패턴 (예: ---, :---, ---:, :---:)
+    _SEP_CELL = re.compile(r"^:?-+:?$")
 
     # 상태값 정규화 매핑
     STATUS_MAP: dict[str, str] = {
@@ -157,6 +163,11 @@ class TestResultParser:
         except Exception as exc:
             logger.warning("파싱 실패, fallback 반환: %s", exc)
 
+        logger.warning(
+            "테스트 결과 파싱 실패 (format=%s, filename=%s): fallback으로 원본 텍스트 전달",
+            fmt,
+            filename,
+        )
         return TestResultSet(
             source_filename=filename,
             format="unknown",
@@ -215,12 +226,17 @@ class TestResultParser:
             raw_dur = self._get_field(item, self.DURATION_ALIASES)
             raw_err = self._get_field(item, self.ERROR_ALIASES)
 
+            try:
+                dur = float(raw_dur) if raw_dur is not None else None
+            except (ValueError, TypeError):
+                dur = None
+
             cases.append(
                 TestCase(
                     id=str(raw_id),
                     name=str(raw_name),
                     status=self._normalise_status(str(raw_status)),  # type: ignore[arg-type]
-                    duration_ms=float(raw_dur) if raw_dur is not None else None,
+                    duration_ms=dur,
                     error_message=str(raw_err) if raw_err else None,
                 )
             )
@@ -252,12 +268,17 @@ class TestResultParser:
             raw_dur = self._get_field(row, self.DURATION_ALIASES)
             raw_err = self._get_field(row, self.ERROR_ALIASES)
 
+            try:
+                dur = float(raw_dur) if raw_dur else None
+            except (ValueError, TypeError):
+                dur = None
+
             cases.append(
                 TestCase(
                     id=str(raw_id),
                     name=str(raw_name),
                     status=self._normalise_status(str(raw_status)),  # type: ignore[arg-type]
-                    duration_ms=float(raw_dur) if raw_dur else None,
+                    duration_ms=dur,
                     error_message=str(raw_err) if raw_err else None,
                 )
             )
@@ -322,8 +343,8 @@ class TestResultParser:
                         header = [c.lower().replace(" ", "_") for c in cols]
                     continue
 
-                # 구분선 행 스킵 (--- 또는 ---- 등)
-                if set(cols) <= {"-", "---", "----", "-----"}:
+                # 구분선 행 스킵 (GFM 정렬 구분선 포함: ---, :---, ---:, :---:)
+                if all(self._SEP_CELL.match(c) for c in cols if c):
                     continue
 
                 row_dict = dict(zip(header, cols))

@@ -20,7 +20,13 @@ logger = get_logger(__name__)
 
 @dataclass
 class ValidationCriteria:
-    """파싱된 QA 검증 기준 객체."""
+    """파싱된 QA 검증 기준 객체.
+
+    Note:
+        ``severity_overrides`` 및 ``report`` YAML 키는 애플리케이션 로직에서 직접
+        사용되지 않는다. 이 키들은 ``raw_yaml`` 필드에 그대로 저장되어 Claude에
+        프롬프트로 전달될 때 verbatim으로 포함된다.
+    """
 
     reproducibility_required: bool
     measurability_required: bool
@@ -63,6 +69,11 @@ class ValidationCriteriaLoader:
 
         with open(self._path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"검증 기준 파일이 비어 있거나 올바른 YAML 형식이 아닙니다: {self._path}"
+            )
 
         # 필수 최상위 키 검증
         required_keys = ["reproducibility", "measurability", "acceptance_criteria", "test_scope"]
