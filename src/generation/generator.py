@@ -16,23 +16,17 @@ API 키 없이 Claude Code 구독으로 동작한다.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 
+from src._agent_lock import AGENT_ENV_LOCK as _AGENT_ENV_LOCK
 from src.logger import get_logger
 from src.retrieval.retriever import RetrievalResults
 
 logger = get_logger(__name__)
-
-# 재시도 로깅용 표준 로거
-_retry_logger = logging.getLogger(__name__)
-
-# os.environ 접근에 대한 모듈 레벨 Lock (다중 인스턴스 간 상호 배제 보장)
-_AGENT_ENV_LOCK = asyncio.Lock()
 
 # ---- 시스템 프롬프트 (역할 지시) ----
 # Claude Agent SDK의 system_prompt 파라미터로 별도 전달하여
@@ -232,7 +226,7 @@ class IssueAnswerGenerator:
                         self.retry_wait_min * (2 ** (attempt - 1)),
                         self.retry_wait_max,
                     )
-                    _retry_logger.warning(
+                    logger.warning(
                         "답변 생성 재시도 %d/%d (%.1f초 대기): %s",
                         attempt,
                         self.max_retries,
