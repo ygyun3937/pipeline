@@ -139,8 +139,9 @@ class QAReportGenerator:
     def _build_report_filename(
         self, elaboration: ElaborationResult, feasibility: FeasibilityResult
     ) -> str:
-        """Build filename: QA_REPORT_{YYYYMMDD_HHMMSS}_{severity}_{verdict}.md"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        """Build filename: QA_REPORT_{YYYYMMDD_HHMMSS_uuu}_{severity}_{verdict}.md"""
+        now = datetime.now(timezone.utc)
+        timestamp = now.strftime("%Y%m%d_%H%M%S_") + f"{now.microsecond:06d}"[:3]
         severity = elaboration.severity_estimate.upper()
         verdict = feasibility.verdict.upper().replace("-", "_")
         return f"QA_REPORT_{timestamp}_{severity}_{verdict}.md"
@@ -148,8 +149,12 @@ class QAReportGenerator:
     def _save_report(self, content: str, filename: str) -> Path:
         """Save report markdown to reports_dir/filename."""
         report_path = self._reports_dir / filename
-        report_path.write_text(content, encoding="utf-8")
-        logger.info("QA 리포트 저장: %s", report_path)
+        try:
+            report_path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            logger.error("QA 리포트 파일 저장 실패: %s | 오류: %s", report_path, exc)
+            raise RuntimeError(f"QA 리포트 저장 실패: {exc}") from exc
+        logger.info("QA 리포트 저장 완료: %s", report_path)
         return report_path
 
     def _extract_issue_id(self, elaboration: ElaborationResult) -> str:
@@ -164,7 +169,7 @@ class QAReportGenerator:
             if match:
                 return match.group(0).upper()
         # Fallback: timestamp-based
-        return f"QA-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        return f"QA-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
     async def _generate_with_retry(self, user_message: str) -> str:
         """
