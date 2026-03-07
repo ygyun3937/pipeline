@@ -5,6 +5,11 @@ from typing import Protocol, runtime_checkable
 class LLMClient(Protocol):
     """LLM 백엔드 공통 인터페이스."""
 
+    # NOTE: @runtime_checkable only checks attribute/method *presence* at runtime,
+    # not whether `complete` is actually a coroutine function. A sync implementation
+    # passes isinstance() checks silently. The only valid backends are ClaudeClient
+    # and OllamaClient defined in this package.
+
     @property
     def model_name(self) -> str: ...
 

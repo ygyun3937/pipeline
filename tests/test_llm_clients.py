@@ -23,6 +23,19 @@ class TestClaudeClient:
             result = await client.complete("시스템 프롬프트", "사용자 메시지")
         assert result == "테스트 응답"
 
+    @pytest.mark.asyncio
+    async def test_complete_raises_on_empty_result(self):
+        client = ClaudeClient()
+        mock_msg = MagicMock()
+        mock_msg.result = None  # no result
+
+        async def fake_query(*args, **kwargs):
+            yield mock_msg
+
+        with patch("src.llm.claude_client.query", side_effect=fake_query):
+            with pytest.raises(RuntimeError, match="응답을 반환하지 않았습니다"):
+                await client.complete("sys", "user")
+
 
 class TestOllamaClient:
     def test_model_name(self):

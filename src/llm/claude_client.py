@@ -31,6 +31,9 @@ class ClaudeClient:
                 ):
                     if hasattr(message, "result") and message.result:
                         answer = message.result
+
+                if not answer:
+                    raise RuntimeError("Claude Agent SDK가 응답을 반환하지 않았습니다.")
                 return answer
             finally:
                 if claudecode_env is not None:
