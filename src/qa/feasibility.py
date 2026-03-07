@@ -40,7 +40,7 @@ class FeasibilityResult:
     test_scope_fit: bool
     recommended_test_cases: list[str] = field(default_factory=list)
     criteria_applied: ValidationCriteria = field(default=None)  # type: ignore[assignment]
-    model_name: str = "claude-agent-sdk"
+    model_name: str = "unknown"
 
     def to_prompt_text(self) -> str:
         """Stage 3 프롬프트에 삽입할 구조화된 텍스트로 변환한다.
@@ -146,7 +146,7 @@ class FeasibilityAssessor:
             logger.info("테스트 가능성 평가 생성 완료: %d자", len(raw_text))
         except Exception as exc:
             logger.error("테스트 가능성 평가 최종 실패: %s", exc)
-            raise RuntimeError(f"Agent SDK 테스트 가능성 평가 중 오류: {exc}") from exc
+            raise RuntimeError(f"LLM 테스트 가능성 평가 중 오류: {exc}") from exc
 
         # 4. Parse result into FeasibilityResult
         parsed = self._parse_feasibility(raw_text, criteria)

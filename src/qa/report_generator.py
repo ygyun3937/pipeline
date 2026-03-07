@@ -39,7 +39,7 @@ class QAReportResult:
     verdict: str                # Mirrors FeasibilityResult.verdict
     pass_rate: float | None     # From TestResultSet.pass_rate, None if no test results
     generated_at: str           # ISO 8601 timestamp
-    model_name: str = "claude-agent-sdk"
+    model_name: str = "unknown"
 
 
 class QAReportGenerator:
@@ -118,7 +118,7 @@ class QAReportGenerator:
             logger.info("QA 리포트 생성 완료: %d자", len(raw_text))
         except Exception as exc:
             logger.error("QA 리포트 생성 최종 실패: %s", exc)
-            raise RuntimeError(f"Agent SDK QA 리포트 생성 중 오류: {exc}") from exc
+            raise RuntimeError(f"LLM QA 리포트 생성 중 오류: {exc}") from exc
 
         # 3. Save to file
         generated_at = datetime.now(timezone.utc).isoformat()

@@ -24,7 +24,7 @@ from src.retrieval.retriever import RetrievalResults
 logger = get_logger(__name__)
 
 # ---- 시스템 프롬프트 (역할 지시) ----
-# Claude Agent SDK의 system_prompt 파라미터로 별도 전달하여
+# system_prompt를 user_message와 분리하여
 # 사용자 메시지(RAG 컨텍스트 + 질문)와 역할 지시를 명확히 분리한다.
 SYSTEM_PROMPT = """당신은 사내 이슈 및 버그 관리 시스템의 전문 AI 어시스턴트입니다.
 
@@ -183,7 +183,7 @@ class IssueAnswerGenerator:
                 context=context, question=question
             )
             logger.info(
-                "답변 생성 시작 (Agent SDK): question='%s' (컨텍스트 %d개)",
+                "답변 생성 시작: question='%s' (컨텍스트 %d개)",
                 question[:100],
                 len(retrieval_results.results),
             )
@@ -201,7 +201,7 @@ class IssueAnswerGenerator:
 
         except Exception as exc:
             logger.error("답변 생성 최종 실패: %s", exc)
-            raise RuntimeError(f"Agent SDK 답변 생성 중 오류: {exc}") from exc
+            raise RuntimeError(f"LLM 답변 생성 중 오류: {exc}") from exc
 
     async def _generate_with_retry(self, user_message: str) -> str:
         """

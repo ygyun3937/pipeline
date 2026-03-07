@@ -209,7 +209,7 @@ class TestIssueAnswerGeneratorGenerate:
         generator = IssueAnswerGenerator(llm_client=mock_llm, max_retries=1)  # 재시도 1회로 빠른 테스트
         retrieval = _make_retrieval_results()
 
-        with pytest.raises(RuntimeError, match="Agent SDK 답변 생성 중 오류"):
+        with pytest.raises(RuntimeError, match="LLM 답변 생성 중 오류"):
             await generator.generate(question="질문", retrieval_results=retrieval)
 
 

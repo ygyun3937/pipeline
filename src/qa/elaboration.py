@@ -41,7 +41,7 @@ class ElaborationResult:
     context_used: RetrievalResults = field(
         default_factory=lambda: RetrievalResults(query="", results=[])
     )
-    model_name: str = "claude-agent-sdk"
+    model_name: str = "unknown"
 
     def to_prompt_text(self) -> str:
         """Stage 2/3 프롬프트에 삽입할 구조화된 텍스트로 변환한다."""
@@ -129,13 +129,13 @@ class IssueElaborator:
             raw_issue=raw_issue,
         )
 
-        # 3. Claude Agent SDK 호출 (재시도 포함)
+        # 3. LLM 호출 (재시도 포함)
         try:
             raw_text = await self._generate_with_retry(user_message)
             logger.info("구체화 생성 완료: %d자", len(raw_text))
         except Exception as exc:
             logger.error("구체화 생성 최종 실패: %s", exc)
-            raise RuntimeError(f"Agent SDK 이슈 구체화 중 오류: {exc}") from exc
+            raise RuntimeError(f"LLM 이슈 구체화 중 오류: {exc}") from exc
 
         # 4. 결과 파싱 후 ElaborationResult를 한 곳에서 생성
         parsed = self._parse_elaboration(raw_text)
