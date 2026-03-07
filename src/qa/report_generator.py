@@ -60,6 +60,7 @@ class QAReportGenerator:
         max_retries: int = 3,
         retry_wait_min: float = 1.0,
         retry_wait_max: float = 10.0,
+        filename_prefix: str = "QA_REPORT",
     ) -> None:
         """
         Args:
@@ -67,9 +68,11 @@ class QAReportGenerator:
             max_retries: 최대 재시도 횟수 (기본값: 3)
             retry_wait_min: 재시도 최소 대기 시간(초) (기본값: 1.0)
             retry_wait_max: 재시도 최대 대기 시간(초) (기본값: 10.0)
+            filename_prefix: 저장 파일명 접두사 (기본값: "QA_REPORT")
         """
         self._reports_dir = Path(reports_dir)
         self._reports_dir.mkdir(parents=True, exist_ok=True)
+        self._filename_prefix = filename_prefix
         self.max_retries = max_retries
         self.retry_wait_min = retry_wait_min
         self.retry_wait_max = retry_wait_max
@@ -139,12 +142,12 @@ class QAReportGenerator:
     def _build_report_filename(
         self, elaboration: ElaborationResult, feasibility: FeasibilityResult
     ) -> str:
-        """Build filename: QA_REPORT_{YYYYMMDD_HHMMSS_uuuuuu}_{severity}_{verdict}.md"""
+        """Build filename: {prefix}_{YYYYMMDD_HHMMSS_uuuuuu}_{severity}_{verdict}.md"""
         now = datetime.now(timezone.utc)
         timestamp = now.strftime("%Y%m%d_%H%M%S_") + f"{now.microsecond:06d}"
         severity = elaboration.severity_estimate.upper()
         verdict = feasibility.verdict.upper().replace("-", "_")
-        return f"QA_REPORT_{timestamp}_{severity}_{verdict}.md"
+        return f"{self._filename_prefix}_{timestamp}_{severity}_{verdict}.md"
 
     def _save_report(self, content: str, filename: str) -> Path:
         """Save report markdown to reports_dir/filename."""

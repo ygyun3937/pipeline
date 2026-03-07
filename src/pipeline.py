@@ -26,8 +26,8 @@ from src.logger import get_logger, setup_logging
 from src.qa.elaboration import ElaborationResult, IssueElaborator
 from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
 from src.qa.report_generator import QAReportGenerator, QAReportResult
-from src.qa.validation_criteria import ValidationCriteria, ValidationCriteriaLoader
 from src.qa.test_result_parser import TestResultSet
+from src.qa.validation_criteria import ValidationCriteria, ValidationCriteriaLoader
 from src.retrieval.retriever import IssueRetriever, RetrievalResults
 
 logger = get_logger(__name__)
@@ -265,7 +265,6 @@ class IssuePipeline:
                 max_retries=self._settings.generation_max_retries,
                 retry_wait_min=self._settings.generation_retry_wait_min,
                 retry_wait_max=self._settings.generation_retry_wait_max,
-                top_k=self._settings.qa_elaboration_top_k,
             )
         return self._elaborator
 
@@ -281,17 +280,18 @@ class IssuePipeline:
     def _get_report_generator(self) -> QAReportGenerator:
         if self._report_generator is None:
             self._report_generator = QAReportGenerator(
-                reports_dir=self._settings.qa_reports_dir,
+                reports_dir=self._settings.qa_reports_path,
                 max_retries=self._settings.generation_max_retries,
                 retry_wait_min=self._settings.generation_retry_wait_min,
                 retry_wait_max=self._settings.generation_retry_wait_max,
+                filename_prefix=self._settings.qa_report_filename_prefix,
             )
         return self._report_generator
 
     def _get_criteria_loader(self) -> ValidationCriteriaLoader:
         if self._criteria_loader is None:
             self._criteria_loader = ValidationCriteriaLoader(
-                criteria_path=self._settings.qa_validation_criteria_path,
+                criteria_path=self._settings.qa_validation_criteria_path_resolved,
             )
         return self._criteria_loader
 
@@ -299,7 +299,7 @@ class IssuePipeline:
         """Stage 1: 모호한 이슈를 RAG 기반으로 구체화한다."""
         logger.info("QA Stage 1 - 이슈 구체화 시작: '%s'", raw_issue[:100])
         elaborator = self._get_elaborator()
-        result = await elaborator.elaborate(raw_issue)
+        result = await elaborator.elaborate(raw_issue, top_k=self._settings.qa_elaboration_top_k)
         logger.info("QA Stage 1 완료 - 심각도: %s", result.severity_estimate)
         return result
 
