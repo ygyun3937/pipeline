@@ -22,6 +22,7 @@ from src.embedding.embedder import IssueEmbedder, IndexMode
 from src.generation.generator import GenerationResult, IssueAnswerGenerator
 from src.ingestion.chunker import DocumentChunker
 from src.ingestion.document_loader import DocumentLoader
+from src.llm import ClaudeClient, LLMClient, OllamaClient
 from src.logger import get_logger, setup_logging
 from src.qa.elaboration import ElaborationResult, IssueElaborator
 from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
@@ -59,6 +60,7 @@ class IssuePipeline:
         embedder: IssueEmbedder,
         retriever: IssueRetriever,
         generator: IssueAnswerGenerator,
+        llm_client: LLMClient,
     ) -> None:
         self._settings = settings
         self._loader = loader
@@ -66,6 +68,7 @@ class IssuePipeline:
         self._embedder = embedder
         self._retriever = retriever
         self._generator = generator
+        self._llm_client: LLMClient = llm_client
 
         self._elaborator: IssueElaborator | None = None
         self._feasibility_assessor: FeasibilityAssessor | None = None
@@ -93,6 +96,17 @@ class IssuePipeline:
 
         logger.info("파이프라인 컴포넌트 초기화 중...")
 
+        # 0. LLM 백엔드 선택
+        if cfg.llm_backend == "ollama":
+            llm_client: LLMClient = OllamaClient(
+                base_url=cfg.ollama_base_url,
+                model=cfg.ollama_model,
+            )
+            logger.info("LLM 백엔드: Ollama (%s @ %s)", cfg.ollama_model, cfg.ollama_base_url)
+        else:
+            llm_client = ClaudeClient()
+            logger.info("LLM 백엔드: Claude Agent SDK")
+
         # 1. 문서 로더
         raw_dir = Path(cfg.raw_documents_dir)
         raw_dir.mkdir(parents=True, exist_ok=True)
@@ -119,8 +133,9 @@ class IssuePipeline:
             score_threshold=cfg.retrieval_score_threshold,
         )
 
-        # 5. 답변 생성기 (Claude Agent SDK, API 키 불필요, tenacity 재시도)
+        # 5. 답변 생성기 (LLM 백엔드, tenacity 재시도)
         generator = IssueAnswerGenerator(
+            llm_client=llm_client,
             max_retries=cfg.generation_max_retries,
             retry_wait_min=cfg.generation_retry_wait_min,
             retry_wait_max=cfg.generation_retry_wait_max,
@@ -133,6 +148,7 @@ class IssuePipeline:
             embedder=embedder,
             retriever=retriever,
             generator=generator,
+            llm_client=llm_client,
         )
 
     def index_documents(
@@ -261,6 +277,7 @@ class IssuePipeline:
     def _get_elaborator(self) -> IssueElaborator:
         if self._elaborator is None:
             self._elaborator = IssueElaborator(
+                llm_client=self._llm_client,
                 retriever=self._retriever,
                 max_retries=self._settings.generation_max_retries,
                 retry_wait_min=self._settings.generation_retry_wait_min,
@@ -271,6 +288,7 @@ class IssuePipeline:
     def _get_feasibility_assessor(self) -> FeasibilityAssessor:
         if self._feasibility_assessor is None:
             self._feasibility_assessor = FeasibilityAssessor(
+                llm_client=self._llm_client,
                 max_retries=self._settings.generation_max_retries,
                 retry_wait_min=self._settings.generation_retry_wait_min,
                 retry_wait_max=self._settings.generation_retry_wait_max,
@@ -280,6 +298,7 @@ class IssuePipeline:
     def _get_report_generator(self) -> QAReportGenerator:
         if self._report_generator is None:
             self._report_generator = QAReportGenerator(
+                llm_client=self._llm_client,
                 reports_dir=self._settings.qa_reports_path,
                 max_retries=self._settings.generation_max_retries,
                 retry_wait_min=self._settings.generation_retry_wait_min,
