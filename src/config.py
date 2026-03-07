@@ -20,6 +20,20 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ---- LLM 백엔드 설정 ----
+    llm_backend: Literal["claude", "ollama"] = Field(
+        default="claude",
+        description="LLM 백엔드 선택: claude(인터넷) | ollama(폐쇄망)",
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama 서버 URL (llm_backend=ollama 시 사용)",
+    )
+    ollama_model: str = Field(
+        default="qwen2.5:7b",
+        description="Ollama 모델명 (예: qwen2.5:7b, exaone3.5:7.8b)",
+    )
+
     # ---- Claude Agent SDK 설정 ----
     anthropic_model: str = Field(
         default="claude-agent-sdk",
