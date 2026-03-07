@@ -139,9 +139,9 @@ class QAReportGenerator:
     def _build_report_filename(
         self, elaboration: ElaborationResult, feasibility: FeasibilityResult
     ) -> str:
-        """Build filename: QA_REPORT_{YYYYMMDD_HHMMSS_uuu}_{severity}_{verdict}.md"""
+        """Build filename: QA_REPORT_{YYYYMMDD_HHMMSS_uuuuuu}_{severity}_{verdict}.md"""
         now = datetime.now(timezone.utc)
-        timestamp = now.strftime("%Y%m%d_%H%M%S_") + f"{now.microsecond:06d}"[:3]
+        timestamp = now.strftime("%Y%m%d_%H%M%S_") + f"{now.microsecond:06d}"
         severity = elaboration.severity_estimate.upper()
         verdict = feasibility.verdict.upper().replace("-", "_")
         return f"QA_REPORT_{timestamp}_{severity}_{verdict}.md"
