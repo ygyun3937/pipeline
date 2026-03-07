@@ -88,6 +88,22 @@ class Settings(BaseSettings):
         default="text", description="로그 출력 형식"
     )
 
+    # ---- QA 워크플로우 설정 ----
+    qa_reports_dir: str = Field(
+        default="./data/qa_reports",
+        description="QA 리포트 저장 디렉토리",
+    )
+    qa_validation_criteria_path: str = Field(
+        default="./data/config/validation_criteria.yaml",
+        description="QA 검증 기준 YAML 파일 경로",
+    )
+    qa_elaboration_top_k: int = Field(
+        default=5, description="이슈 구체화 시 RAG 검색 결과 수"
+    )
+    qa_report_filename_prefix: str = Field(
+        default="QA_REPORT", description="QA 리포트 파일명 접두사"
+    )
+
     @property
     def chroma_persist_path(self) -> Path:
         """ChromaDB 절대 경로 반환."""
@@ -102,6 +118,16 @@ class Settings(BaseSettings):
     def processed_documents_path(self) -> Path:
         """처리된 문서 디렉토리 절대 경로 반환."""
         return Path(self.processed_documents_dir).resolve()
+
+    @property
+    def qa_reports_path(self) -> Path:
+        """QA 리포트 디렉토리 절대 경로 반환."""
+        return Path(self.qa_reports_dir).resolve()
+
+    @property
+    def qa_validation_criteria_path_resolved(self) -> Path:
+        """QA 검증 기준 파일 절대 경로 반환."""
+        return Path(self.qa_validation_criteria_path).resolve()
 
 
 def get_settings() -> Settings:

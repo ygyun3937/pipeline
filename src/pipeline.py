@@ -23,6 +23,11 @@ from src.generation.generator import GenerationResult, IssueAnswerGenerator
 from src.ingestion.chunker import DocumentChunker
 from src.ingestion.document_loader import DocumentLoader
 from src.logger import get_logger, setup_logging
+from src.qa.elaboration import ElaborationResult, IssueElaborator
+from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
+from src.qa.report_generator import QAReportGenerator, QAReportResult
+from src.qa.validation_criteria import ValidationCriteria, ValidationCriteriaLoader
+from src.qa.test_result_parser import TestResultParser, TestResultSet
 from src.retrieval.retriever import IssueRetriever, RetrievalResults
 
 logger = get_logger(__name__)
@@ -61,6 +66,11 @@ class IssuePipeline:
         self._embedder = embedder
         self._retriever = retriever
         self._generator = generator
+
+        self._elaborator: IssueElaborator | None = None
+        self._feasibility_assessor: FeasibilityAssessor | None = None
+        self._report_generator: QAReportGenerator | None = None
+        self._criteria_loader: ValidationCriteriaLoader | None = None
 
         logger.info("IssuePipeline 초기화 완료")
 
@@ -247,3 +257,75 @@ class IssuePipeline:
     def get_index_stats(self) -> dict[str, Any]:
         """현재 벡터 DB 인덱스 통계를 반환한다."""
         return self._embedder.get_collection_stats()
+
+    def _get_elaborator(self) -> IssueElaborator:
+        if self._elaborator is None:
+            self._elaborator = IssueElaborator(
+                retriever=self._retriever,
+                max_retries=self._settings.generation_max_retries,
+                retry_wait_min=self._settings.generation_retry_wait_min,
+                retry_wait_max=self._settings.generation_retry_wait_max,
+                top_k=self._settings.qa_elaboration_top_k,
+            )
+        return self._elaborator
+
+    def _get_feasibility_assessor(self) -> FeasibilityAssessor:
+        if self._feasibility_assessor is None:
+            self._feasibility_assessor = FeasibilityAssessor(
+                max_retries=self._settings.generation_max_retries,
+                retry_wait_min=self._settings.generation_retry_wait_min,
+                retry_wait_max=self._settings.generation_retry_wait_max,
+            )
+        return self._feasibility_assessor
+
+    def _get_report_generator(self) -> QAReportGenerator:
+        if self._report_generator is None:
+            self._report_generator = QAReportGenerator(
+                reports_dir=self._settings.qa_reports_dir,
+                max_retries=self._settings.generation_max_retries,
+                retry_wait_min=self._settings.generation_retry_wait_min,
+                retry_wait_max=self._settings.generation_retry_wait_max,
+            )
+        return self._report_generator
+
+    def _get_criteria_loader(self) -> ValidationCriteriaLoader:
+        if self._criteria_loader is None:
+            self._criteria_loader = ValidationCriteriaLoader(
+                criteria_path=self._settings.qa_validation_criteria_path,
+            )
+        return self._criteria_loader
+
+    async def qa_elaborate(self, raw_issue: str) -> ElaborationResult:
+        """Stage 1: 모호한 이슈를 RAG 기반으로 구체화한다."""
+        logger.info("QA Stage 1 - 이슈 구체화 시작: '%s'", raw_issue[:100])
+        elaborator = self._get_elaborator()
+        result = await elaborator.elaborate(raw_issue)
+        logger.info("QA Stage 1 완료 - 심각도: %s", result.severity_estimate)
+        return result
+
+    async def qa_assess_feasibility(
+        self,
+        elaboration: ElaborationResult,
+        criteria: ValidationCriteria | None = None,
+    ) -> FeasibilityResult:
+        """Stage 2: 구체화된 이슈의 테스트 가능여부를 판단한다."""
+        logger.info("QA Stage 2 - 테스트 가능여부 판단 시작")
+        assessor = self._get_feasibility_assessor()
+        if criteria is None:
+            criteria = self._get_criteria_loader().load()
+        result = await assessor.assess(elaboration, criteria)
+        logger.info("QA Stage 2 완료 - verdict: %s", result.verdict)
+        return result
+
+    async def qa_generate_report(
+        self,
+        elaboration: ElaborationResult,
+        feasibility: FeasibilityResult,
+        test_results: TestResultSet,
+    ) -> QAReportResult:
+        """Stage 3: QA 리포트 Markdown을 생성하고 파일로 저장한다."""
+        logger.info("QA Stage 3 - 리포트 생성 시작")
+        generator = self._get_report_generator()
+        result = await generator.generate_report(elaboration, feasibility, test_results)
+        logger.info("QA Stage 3 완료 - 리포트 저장: %s", result.report_path)
+        return result
