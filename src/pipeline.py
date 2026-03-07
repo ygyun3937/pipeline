@@ -27,7 +27,7 @@ from src.qa.elaboration import ElaborationResult, IssueElaborator
 from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
 from src.qa.report_generator import QAReportGenerator, QAReportResult
 from src.qa.validation_criteria import ValidationCriteria, ValidationCriteriaLoader
-from src.qa.test_result_parser import TestResultParser, TestResultSet
+from src.qa.test_result_parser import TestResultSet
 from src.retrieval.retriever import IssueRetriever, RetrievalResults
 
 logger = get_logger(__name__)
