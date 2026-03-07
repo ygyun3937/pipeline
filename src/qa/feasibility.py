@@ -6,22 +6,20 @@ Stage 2: 구체화된 이슈 스펙과 YAML 검증 기준을 바탕으로 테스
 동작 흐름:
     1. ElaborationResult(Stage 1 결과)와 ValidationCriteria를 입력받는다.
     2. FEASIBILITY_QUERY_TEMPLATE으로 사용자 메시지를 구성한다.
-    3. Claude Agent SDK를 호출하여 평가 결과를 생성한다.
+    3. LLMClient를 호출하여 평가 결과를 생성한다.
     4. 결과를 파싱하여 FeasibilityResult 데이터클래스로 반환한다.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import yaml
-from claude_agent_sdk import ClaudeAgentOptions, query
 
-from src._agent_lock import AGENT_ENV_LOCK as _AGENT_ENV_LOCK
+from src.llm.base import LLMClient
 from src.logger import get_logger
 from src.qa.elaboration import ElaborationResult
 from src.qa.prompts import FEASIBILITY_QUERY_TEMPLATE, FEASIBILITY_SYSTEM_PROMPT
@@ -75,32 +73,35 @@ class FeasibilityResult:
 
 class FeasibilityAssessor:
     """
-    Claude Agent SDK를 사용하여 이슈의 테스트 가능성을 평가하는 클래스.
+    LLMClient를 사용하여 이슈의 테스트 가능성을 평가하는 클래스.
 
     ElaborationResult(Stage 1)와 ValidationCriteria를 입력받아
-    FEASIBILITY_SYSTEM_PROMPT와 함께 Claude에게 평가를 요청한다.
+    FEASIBILITY_SYSTEM_PROMPT와 함께 LLM에게 평가를 요청한다.
     """
 
     def __init__(
         self,
+        llm_client: LLMClient,
         max_retries: int = 3,
         retry_wait_min: float = 1.0,
         retry_wait_max: float = 10.0,
     ) -> None:
         """
         Args:
+            llm_client: LLM 백엔드 클라이언트
             max_retries: 최대 재시도 횟수 (기본값: 3)
             retry_wait_min: 재시도 최소 대기 시간(초) (기본값: 1.0)
             retry_wait_max: 재시도 최대 대기 시간(초) (기본값: 10.0)
         """
+        self._llm = llm_client
         self.max_retries = max_retries
         self.retry_wait_min = retry_wait_min
         self.retry_wait_max = retry_wait_max
-        self.model_name = "claude-agent-sdk"
+        self.model_name = llm_client.model_name
 
         logger.info(
-            "FeasibilityAssessor 초기화: Claude Agent SDK 사용 (API 키 불필요), "
-            "max_retries=%d",
+            "FeasibilityAssessor 초기화: model=%s, max_retries=%d",
+            self.model_name,
             max_retries,
         )
 
@@ -172,7 +173,7 @@ class FeasibilityAssessor:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                return await self._query_agent(user_message)
+                return await self._llm.complete(FEASIBILITY_SYSTEM_PROMPT, user_message)
             except (RuntimeError, ConnectionError, TimeoutError) as exc:
                 last_exc = exc
                 if attempt < self.max_retries:
@@ -190,31 +191,6 @@ class FeasibilityAssessor:
                     await asyncio.sleep(wait_time)
 
         raise last_exc  # type: ignore[misc]
-
-    async def _query_agent(self, user_message: str) -> str:
-        """
-        Agent SDK로 Claude에 테스트 가능성 평가를 요청하고 결과를 반환한다.
-
-        FEASIBILITY_SYSTEM_PROMPT를 system_prompt로 사용하며,
-        _AGENT_ENV_LOCK으로 환경변수 접근을 직렬화한다.
-        """
-        async with _AGENT_ENV_LOCK:
-            claudecode_env = os.environ.pop("CLAUDECODE", None)
-            try:
-                answer = ""
-                async for message in query(
-                    prompt=user_message,
-                    options=ClaudeAgentOptions(
-                        allowed_tools=[],
-                        system_prompt=FEASIBILITY_SYSTEM_PROMPT,
-                    ),
-                ):
-                    if hasattr(message, "result") and message.result:
-                        answer = message.result
-                return answer
-            finally:
-                if claudecode_env is not None:
-                    os.environ["CLAUDECODE"] = claudecode_env
 
     def _parse_feasibility(self, raw_text: str, criteria: ValidationCriteria) -> dict[str, Any]:
         """Claude 출력을 파싱하여 FeasibilityResult 필드 딕셔너리를 반환한다.

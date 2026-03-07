@@ -1,12 +1,12 @@
 """
 FeasibilityAssessor 단위 테스트.
 
-_query_agent를 AsyncMock으로 패치하여 실제 LLM 호출 없이 테스트한다.
+llm_client.complete를 AsyncMock으로 패치하여 실제 LLM 호출 없이 테스트한다.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -14,6 +14,14 @@ from src.qa.elaboration import ElaborationResult
 from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
 from src.qa.validation_criteria import ValidationCriteria
 from src.retrieval.retriever import RetrievalResults
+
+
+def _make_mock_llm(model_name: str = "test-model") -> MagicMock:
+    """LLMClient Mock을 생성한다."""
+    mock = MagicMock()
+    mock.complete = AsyncMock(return_value="mock response")
+    mock.model_name = model_name
+    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +122,7 @@ FAKE_EMPTY_RESPONSE = "이 응답에는 구조화된 섹션이 없습니다."
 
 @pytest.fixture
 def assessor() -> FeasibilityAssessor:
-    return FeasibilityAssessor(max_retries=1)
+    return FeasibilityAssessor(llm_client=_make_mock_llm(), max_retries=1)
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +138,7 @@ class TestAssessHappyPath:
         criteria = _make_criteria()
 
         with patch.object(
-            assessor, "_query_agent", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
+            assessor._llm, "complete", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
         ):
             result = await assessor.assess(elaboration, criteria)
 
@@ -142,7 +150,7 @@ class TestAssessHappyPath:
         criteria = _make_criteria()
 
         with patch.object(
-            assessor, "_query_agent", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
+            assessor._llm, "complete", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
         ):
             result = await assessor.assess(elaboration, criteria)
 
@@ -166,8 +174,8 @@ class TestAssessHappyPath:
         criteria = _make_criteria()
 
         with patch.object(
-            assessor,
-            "_query_agent",
+            assessor._llm,
+            "complete",
             new=AsyncMock(side_effect=RuntimeError("network error")),
         ):
             with pytest.raises(RuntimeError):
@@ -179,11 +187,11 @@ class TestAssessHappyPath:
         criteria = _make_criteria()
 
         with patch.object(
-            assessor, "_query_agent", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
+            assessor._llm, "complete", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
         ):
             result = await assessor.assess(elaboration, criteria)
 
-        assert result.model_name == "claude-agent-sdk"
+        assert result.model_name == assessor.model_name
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +330,7 @@ class TestAssessResultFields:
         criteria = _make_criteria()
 
         with patch.object(
-            assessor, "_query_agent", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
+            assessor._llm, "complete", new=AsyncMock(return_value=FAKE_FEASIBILITY_RESPONSE)
         ):
             result = await assessor.assess(elaboration, criteria)
 

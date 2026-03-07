@@ -1,7 +1,7 @@
 """
 IssueElaborator 단위 테스트.
 
-_query_agent를 AsyncMock으로 패치하여 실제 LLM 호출 없이 테스트한다.
+llm_client._llm.complete를 AsyncMock으로 패치하여 실제 LLM 호출 없이 테스트한다.
 """
 
 from __future__ import annotations
@@ -22,6 +22,14 @@ def _make_retriever() -> MagicMock:
     """IssueRetriever를 MagicMock으로 대체한다."""
     mock = MagicMock()
     mock.search.return_value = RetrievalResults(query="test", results=[])
+    return mock
+
+
+def _make_mock_llm(model_name: str = "test-model") -> MagicMock:
+    """LLMClient Mock을 생성한다."""
+    mock = MagicMock()
+    mock.complete = AsyncMock(return_value="mock response")
+    mock.model_name = model_name
     return mock
 
 
@@ -56,7 +64,7 @@ FAKE_EMPTY_RESPONSE = """\
 @pytest.fixture
 def elaborator() -> IssueElaborator:
     retriever = _make_retriever()
-    return IssueElaborator(retriever=retriever, max_retries=1)
+    return IssueElaborator(llm_client=_make_mock_llm(), retriever=retriever, max_retries=1)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +78,7 @@ class TestElaborateHappyPath:
     async def test_returns_elaboration_result(self, elaborator: IssueElaborator) -> None:
         """elaborate()가 ElaborationResult를 반환하는지 확인."""
         with patch.object(
-            elaborator, "_query_agent", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
+            elaborator._llm, "complete", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
         ):
             result = await elaborator.elaborate("로그인 오류 발생")
 
@@ -80,7 +88,7 @@ class TestElaborateHappyPath:
     async def test_raw_input_preserved(self, elaborator: IssueElaborator) -> None:
         """raw_input이 입력 이슈 텍스트로 설정되는지 확인."""
         with patch.object(
-            elaborator, "_query_agent", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
+            elaborator._llm, "complete", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
         ):
             result = await elaborator.elaborate("로그인 오류 발생")
 
@@ -90,7 +98,7 @@ class TestElaborateHappyPath:
     async def test_elaborated_spec_is_raw_text(self, elaborator: IssueElaborator) -> None:
         """elaborated_spec이 Claude 출력 전체인지 확인."""
         with patch.object(
-            elaborator, "_query_agent", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
+            elaborator._llm, "complete", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
         ):
             result = await elaborator.elaborate("로그인 오류 발생")
 
@@ -100,7 +108,7 @@ class TestElaborateHappyPath:
     async def test_context_used_set(self, elaborator: IssueElaborator) -> None:
         """context_used가 RetrievalResults로 설정되는지 확인."""
         with patch.object(
-            elaborator, "_query_agent", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
+            elaborator._llm, "complete", new=AsyncMock(return_value=FAKE_ELABORATION_RESPONSE)
         ):
             result = await elaborator.elaborate("로그인 오류 발생")
 
@@ -128,8 +136,8 @@ class TestElaborateHappyPath:
     ) -> None:
         """_query_agent가 RuntimeError를 raise하면 RuntimeError로 래핑되어 반환."""
         with patch.object(
-            elaborator,
-            "_query_agent",
+            elaborator._llm,
+            "complete",
             new=AsyncMock(side_effect=RuntimeError("network error")),
         ):
             with pytest.raises(RuntimeError):
@@ -256,7 +264,7 @@ class TestEmptyMissingSections:
     ) -> None:
         """Claude가 구조화 없는 응답을 반환해도 ElaborationResult를 반환한다."""
         with patch.object(
-            elaborator, "_query_agent", new=AsyncMock(return_value=FAKE_EMPTY_RESPONSE)
+            elaborator._llm, "complete", new=AsyncMock(return_value=FAKE_EMPTY_RESPONSE)
         ):
             result = await elaborator.elaborate("이슈 설명")
 

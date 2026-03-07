@@ -28,6 +28,14 @@ from src.generation.generator import (
 from src.retrieval.retriever import RetrievalResults, SearchResult
 
 
+def _make_mock_llm(model_name: str = "test-model") -> MagicMock:
+    """LLMClient Mock을 생성한다."""
+    mock = MagicMock()
+    mock.complete = AsyncMock(return_value="mock response")
+    mock.model_name = model_name
+    return mock
+
+
 def _make_search_result(content: str, score: float = 0.8) -> SearchResult:
     """테스트용 SearchResult를 생성한다."""
     doc = Document(
@@ -97,7 +105,7 @@ class TestIssueAnswerGeneratorInit:
 
     def test_default_retry_settings(self) -> None:
         """기본 재시도 설정이 올바르게 초기화되는지 확인한다."""
-        generator = IssueAnswerGenerator()
+        generator = IssueAnswerGenerator(llm_client=_make_mock_llm())
         assert generator.max_retries == 3
         assert generator.retry_wait_min == 1.0
         assert generator.retry_wait_max == 10.0
@@ -105,6 +113,7 @@ class TestIssueAnswerGeneratorInit:
     def test_custom_retry_settings(self) -> None:
         """커스텀 재시도 설정이 올바르게 적용되는지 확인한다."""
         generator = IssueAnswerGenerator(
+            llm_client=_make_mock_llm(),
             max_retries=5,
             retry_wait_min=2.0,
             retry_wait_max=20.0,
@@ -113,10 +122,10 @@ class TestIssueAnswerGeneratorInit:
         assert generator.retry_wait_min == 2.0
         assert generator.retry_wait_max == 20.0
 
-    def test_model_name_is_agent_sdk(self) -> None:
-        """model_name이 'claude-agent-sdk'인지 확인한다."""
-        generator = IssueAnswerGenerator()
-        assert generator.model_name == "claude-agent-sdk"
+    def test_model_name_from_llm_client(self) -> None:
+        """model_name이 llm_client.model_name에서 설정되는지 확인한다."""
+        generator = IssueAnswerGenerator(llm_client=_make_mock_llm(model_name="test-model"))
+        assert generator.model_name == "test-model"
 
 
 class TestIssueAnswerGeneratorValidation:
@@ -125,7 +134,7 @@ class TestIssueAnswerGeneratorValidation:
     @pytest.mark.asyncio
     async def test_empty_question_raises_value_error(self) -> None:
         """빈 질문 전달 시 ValueError가 발생하는지 확인한다."""
-        generator = IssueAnswerGenerator()
+        generator = IssueAnswerGenerator(llm_client=_make_mock_llm())
         retrieval = _make_retrieval_results()
 
         with pytest.raises(ValueError, match="질문이 비어 있습니다"):
@@ -134,7 +143,7 @@ class TestIssueAnswerGeneratorValidation:
     @pytest.mark.asyncio
     async def test_whitespace_only_question_raises_value_error(self) -> None:
         """공백만 있는 질문 전달 시 ValueError가 발생하는지 확인한다."""
-        generator = IssueAnswerGenerator()
+        generator = IssueAnswerGenerator(llm_client=_make_mock_llm())
         retrieval = _make_retrieval_results()
 
         with pytest.raises(ValueError, match="질문이 비어 있습니다"):
@@ -148,16 +157,15 @@ class TestIssueAnswerGeneratorGenerate:
     async def test_generate_with_context_uses_rag_template(self) -> None:
         """
         검색 결과가 있을 때 RAG_QUERY_TEMPLATE이 사용되는지 확인한다.
-        _query_agent에 전달된 user_message에 컨텍스트가 포함되어야 한다.
+        llm.complete에 전달된 user_message에 컨텍스트가 포함되어야 한다.
         """
-        generator = IssueAnswerGenerator()
+        mock_llm = _make_mock_llm()
+        mock_llm.complete = AsyncMock(return_value="### 1. 증상\n테스트 답변")
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
         result_item = _make_search_result("이슈 문서 내용입니다.")
         retrieval = _make_retrieval_results([result_item])
 
-        with patch.object(
-            generator, "_query_agent", new=AsyncMock(return_value="### 1. 증상\n테스트 답변")
-        ):
-            result = await generator.generate(question="오류 원인은?", retrieval_results=retrieval)
+        result = await generator.generate(question="오류 원인은?", retrieval_results=retrieval)
 
         assert isinstance(result, GenerationResult)
         assert result.answer == "### 1. 증상\n테스트 답변"
@@ -169,15 +177,12 @@ class TestIssueAnswerGeneratorGenerate:
         """
         검색 결과가 없을 때 NO_CONTEXT_QUERY_TEMPLATE이 사용되는지 확인한다.
         """
-        generator = IssueAnswerGenerator()
+        mock_llm = _make_mock_llm()
+        mock_llm.complete = AsyncMock(return_value="### 1. 증상\n컨텍스트 없는 답변")
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
         retrieval = _make_retrieval_results([])  # 빈 결과
 
-        with patch.object(
-            generator,
-            "_query_agent",
-            new=AsyncMock(return_value="### 1. 증상\n컨텍스트 없는 답변"),
-        ):
-            result = await generator.generate(question="오류 원인은?", retrieval_results=retrieval)
+        result = await generator.generate(question="오류 원인은?", retrieval_results=retrieval)
 
         assert result.has_context is False
         assert result.answer == "### 1. 증상\n컨텍스트 없는 답변"
@@ -185,29 +190,27 @@ class TestIssueAnswerGeneratorGenerate:
     @pytest.mark.asyncio
     async def test_generate_returns_correct_model_name(self) -> None:
         """GenerationResult의 model_name이 올바른지 확인한다."""
-        generator = IssueAnswerGenerator()
+        mock_llm = _make_mock_llm(model_name="test-model")
+        mock_llm.complete = AsyncMock(return_value="답변")
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
         retrieval = _make_retrieval_results()
 
-        with patch.object(generator, "_query_agent", new=AsyncMock(return_value="답변")):
-            result = await generator.generate(question="질문", retrieval_results=retrieval)
+        result = await generator.generate(question="질문", retrieval_results=retrieval)
 
-        assert result.model_name == "claude-agent-sdk"
+        assert result.model_name == "test-model"
 
     @pytest.mark.asyncio
     async def test_generate_agent_error_raises_runtime_error(self) -> None:
         """
-        Agent SDK 호출 실패 시 RuntimeError로 래핑되어 발생하는지 확인한다.
+        LLM 호출 실패 시 RuntimeError로 래핑되어 발생하는지 확인한다.
         """
-        generator = IssueAnswerGenerator(max_retries=1)  # 재시도 1회로 빠른 테스트
+        mock_llm = _make_mock_llm()
+        mock_llm.complete = AsyncMock(side_effect=RuntimeError("연결 실패"))
+        generator = IssueAnswerGenerator(llm_client=mock_llm, max_retries=1)  # 재시도 1회로 빠른 테스트
         retrieval = _make_retrieval_results()
 
-        with patch.object(
-            generator,
-            "_query_agent",
-            new=AsyncMock(side_effect=RuntimeError("연결 실패")),
-        ):
-            with pytest.raises(RuntimeError, match="Agent SDK 답변 생성 중 오류"):
-                await generator.generate(question="질문", retrieval_results=retrieval)
+        with pytest.raises(RuntimeError, match="Agent SDK 답변 생성 중 오류"):
+            await generator.generate(question="질문", retrieval_results=retrieval)
 
 
 class TestIssueAnswerGeneratorWithoutContext:
@@ -216,10 +219,11 @@ class TestIssueAnswerGeneratorWithoutContext:
     @pytest.mark.asyncio
     async def test_generate_without_context_calls_generate(self) -> None:
         """generate_without_context가 빈 RetrievalResults로 generate를 호출하는지 확인한다."""
-        generator = IssueAnswerGenerator()
+        mock_llm = _make_mock_llm()
+        mock_llm.complete = AsyncMock(return_value="답변")
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
 
-        with patch.object(generator, "_query_agent", new=AsyncMock(return_value="답변")):
-            result = await generator.generate_without_context("테스트 질문")
+        result = await generator.generate_without_context("테스트 질문")
 
         assert isinstance(result, GenerationResult)
         assert result.has_context is False

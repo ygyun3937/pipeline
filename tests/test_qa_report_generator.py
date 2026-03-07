@@ -1,7 +1,7 @@
 """
 QAReportGenerator 단위 테스트.
 
-_query_agent를 AsyncMock으로 패치하고 tmp_path 픽스처로 임시 디렉터리를 사용한다.
+llm_client.complete를 AsyncMock으로 패치하고 tmp_path 픽스처로 임시 디렉터리를 사용한다.
 """
 
 from __future__ import annotations
@@ -17,6 +17,14 @@ from src.qa.report_generator import QAReportGenerator, QAReportResult
 from src.qa.test_result_parser import TestResultSet
 from src.qa.validation_criteria import ValidationCriteria
 from src.retrieval.retriever import RetrievalResults
+
+
+def _make_mock_llm(model_name: str = "test-model") -> MagicMock:
+    """LLMClient Mock을 생성한다."""
+    mock = MagicMock()
+    mock.complete = AsyncMock(return_value="mock response")
+    mock.model_name = model_name
+    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -102,14 +110,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_returns_qa_report_result(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -118,14 +126,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_report_markdown_matches_agent_output(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -134,14 +142,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_report_saved_to_disk(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -151,14 +159,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_report_path_is_in_reports_dir(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -167,14 +175,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_verdict_mirrors_feasibility(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility(verdict="not-testable")
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -183,14 +191,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_pass_rate_none_when_no_tests(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results(total=0)
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -199,14 +207,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_pass_rate_set_when_tests_present(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results(total=10, passed=9)
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -215,14 +223,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_generated_at_is_iso_format(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(return_value=FAKE_REPORT_MARKDOWN),
         ):
             result = await generator.generate_report(elaboration, feasibility, test_results)
@@ -232,14 +240,14 @@ class TestGenerateReportHappyPath:
 
     @pytest.mark.asyncio
     async def test_raises_runtime_error_on_agent_failure(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
         test_results = _make_test_results()
 
         with patch.object(
-            generator,
-            "_query_agent",
+            generator._llm,
+            "complete",
             new=AsyncMock(side_effect=RuntimeError("network error")),
         ):
             with pytest.raises(RuntimeError):
@@ -254,7 +262,7 @@ class TestBuildReportFilename:
     """_build_report_filename() 포맷 검증."""
 
     def test_starts_with_prefix(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path, filename_prefix="QA_REPORT")
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path, filename_prefix="QA_REPORT")
         elaboration = _make_elaboration(severity="High")
         feasibility = _make_feasibility(verdict="testable")
 
@@ -262,7 +270,7 @@ class TestBuildReportFilename:
         assert filename.startswith("QA_REPORT_")
 
     def test_ends_with_md(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
 
@@ -270,7 +278,7 @@ class TestBuildReportFilename:
         assert filename.endswith(".md")
 
     def test_contains_severity(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(severity="Critical")
         feasibility = _make_feasibility()
 
@@ -278,7 +286,7 @@ class TestBuildReportFilename:
         assert "CRITICAL" in filename
 
     def test_contains_verdict(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration()
         feasibility = _make_feasibility(verdict="not-testable")
 
@@ -286,7 +294,7 @@ class TestBuildReportFilename:
         assert "NOT_TESTABLE" in filename
 
     def test_custom_prefix(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path, filename_prefix="TEST_RPT")
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path, filename_prefix="TEST_RPT")
         elaboration = _make_elaboration()
         feasibility = _make_feasibility()
 
@@ -302,7 +310,7 @@ class TestSaveReport:
     """_save_report() OSError → RuntimeError 변환 테스트."""
 
     def test_save_creates_file(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         path = generator._save_report("# Test Report", "test_report.md")
 
         assert path.exists()
@@ -310,14 +318,14 @@ class TestSaveReport:
 
     def test_save_os_error_raises_runtime_error(self, tmp_path: Path) -> None:
         """파일 저장 실패 시 OSError → RuntimeError 변환."""
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
 
         with patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
             with pytest.raises(RuntimeError, match="저장 실패"):
                 generator._save_report("# Report", "fail.md")
 
     def test_save_returns_path_object(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         path = generator._save_report("content", "report.md")
 
         assert isinstance(path, Path)
@@ -331,14 +339,14 @@ class TestExtractIssueId:
     """_extract_issue_id() ID 추출 및 fallback 테스트."""
 
     def test_extracts_bug_id_from_raw_input(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(raw_input="BUG-2024-001 로그인 오류")
 
         issue_id = generator._extract_issue_id(elaboration)
         assert issue_id == "BUG-2024-001"
 
     def test_extracts_incident_id(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(
             raw_input="INCIDENT-2024-042 서비스 장애"
         )
@@ -347,7 +355,7 @@ class TestExtractIssueId:
         assert issue_id == "INCIDENT-2024-042"
 
     def test_extracts_id_from_elaborated_spec(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(
             raw_input="일반 이슈 설명",
             elaborated_spec="ISSUE-2024-100 상세 스펙 내용",
@@ -357,7 +365,7 @@ class TestExtractIssueId:
         assert issue_id == "ISSUE-2024-100"
 
     def test_fallback_id_when_no_pattern(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(
             raw_input="패턴 없는 이슈 설명",
             elaborated_spec="패턴 없는 스펙",
@@ -368,14 +376,14 @@ class TestExtractIssueId:
 
     def test_id_uppercased(self, tmp_path: Path) -> None:
         """추출된 ID는 대문자로 반환된다."""
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(raw_input="bug-2024-001 소문자 이슈")
 
         issue_id = generator._extract_issue_id(elaboration)
         assert issue_id == "BUG-2024-001"
 
     def test_feat_id_extracted(self, tmp_path: Path) -> None:
-        generator = QAReportGenerator(reports_dir=tmp_path)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=tmp_path)
         elaboration = _make_elaboration(raw_input="FEAT-2024-999 기능 요청")
 
         issue_id = generator._extract_issue_id(elaboration)
@@ -393,6 +401,6 @@ class TestReportsDirCreation:
         new_dir = tmp_path / "nested" / "reports"
         assert not new_dir.exists()
 
-        generator = QAReportGenerator(reports_dir=new_dir)
+        generator = QAReportGenerator(llm_client=_make_mock_llm(), reports_dir=new_dir)
 
         assert new_dir.exists()

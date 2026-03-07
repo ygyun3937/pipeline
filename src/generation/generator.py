@@ -1,10 +1,8 @@
 """
 생성(Generation) 모듈.
 
-Claude Agent SDK를 사용하여 검색된 이슈 문서를 바탕으로
+LLMClient를 사용하여 검색된 이슈 문서를 바탕으로
 사용자 질문에 대한 답변을 생성한다.
-
-API 키 없이 Claude Code 구독으로 동작한다.
 
 개선 사항 (v2):
     - system_prompt를 prompt와 분리하여 역할 지시 강화
@@ -16,13 +14,10 @@ API 키 없이 Claude Code 구독으로 동작한다.
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import dataclass
 from typing import Any
 
-from claude_agent_sdk import ClaudeAgentOptions, query
-
-from src._agent_lock import AGENT_ENV_LOCK as _AGENT_ENV_LOCK
+from src.llm.base import LLMClient
 from src.logger import get_logger
 from src.retrieval.retriever import RetrievalResults
 
@@ -117,9 +112,7 @@ class GenerationResult:
 
 class IssueAnswerGenerator:
     """
-    Claude Agent SDK를 사용하여 이슈 문서 기반 답변을 생성하는 클래스.
-
-    API 키 없이 Claude Code 구독으로 동작한다.
+    LLMClient를 사용하여 이슈 문서 기반 답변을 생성하는 클래스.
 
     개선 사항 (v2):
         - system_prompt 분리: 역할 지시와 RAG 컨텍스트를 명확히 구분
@@ -129,24 +122,27 @@ class IssueAnswerGenerator:
 
     def __init__(
         self,
+        llm_client: LLMClient,
         max_retries: int = 3,
         retry_wait_min: float = 1.0,
         retry_wait_max: float = 10.0,
     ) -> None:
         """
         Args:
+            llm_client: LLM 백엔드 클라이언트
             max_retries: 답변 생성 최대 재시도 횟수 (기본값: 3)
             retry_wait_min: 재시도 최소 대기 시간(초) (기본값: 1.0)
             retry_wait_max: 재시도 최대 대기 시간(초) (기본값: 10.0)
         """
-        self.model_name = "claude-agent-sdk"
+        self._llm = llm_client
+        self.model_name = llm_client.model_name
         self.max_retries = max_retries
         self.retry_wait_min = retry_wait_min
         self.retry_wait_max = retry_wait_max
 
         logger.info(
-            "IssueAnswerGenerator 초기화: Claude Agent SDK 사용 (API 키 불필요), "
-            "max_retries=%d",
+            "IssueAnswerGenerator 초기화: model=%s, max_retries=%d",
+            self.model_name,
             max_retries,
         )
 
@@ -217,7 +213,7 @@ class IssueAnswerGenerator:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                return await self._query_agent(user_message)
+                return await self._llm.complete(SYSTEM_PROMPT, user_message)
             except (RuntimeError, ConnectionError, TimeoutError) as exc:
                 last_exc = exc
                 if attempt < self.max_retries:
@@ -236,34 +232,6 @@ class IssueAnswerGenerator:
                     await asyncio.sleep(wait_time)
 
         raise last_exc  # type: ignore[misc]
-
-    async def _query_agent(self, user_message: str) -> str:
-        """
-        Agent SDK로 Claude에 질문하고 결과를 반환한다.
-
-        시스템 프롬프트와 사용자 메시지를 분리하여 전달한다:
-            - system_prompt: 역할 정의, 답변 형식 지시 (고정)
-            - prompt: RAG 컨텍스트 + 사용자 질문 (요청마다 변경)
-        """
-        # Claude Code 세션 내부에서 중첩 실행 방지를 위해 환경변수 임시 제거
-        # asyncio.Lock으로 직렬화하여 동시 코루틴 간 경쟁 조건 방지
-        async with _AGENT_ENV_LOCK:
-            claudecode_env = os.environ.pop("CLAUDECODE", None)
-            try:
-                answer = ""
-                async for message in query(
-                    prompt=user_message,
-                    options=ClaudeAgentOptions(
-                        allowed_tools=[],
-                        system_prompt=SYSTEM_PROMPT,
-                    ),
-                ):
-                    if hasattr(message, "result") and message.result:
-                        answer = message.result
-                return answer
-            finally:
-                if claudecode_env is not None:
-                    os.environ["CLAUDECODE"] = claudecode_env
 
     async def generate_without_context(self, question: str) -> GenerationResult:
         """
