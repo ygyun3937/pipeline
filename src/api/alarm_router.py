@@ -1,6 +1,8 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends
-from src.api.alarm_models import AlarmPayload, AlarmReportResponse
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.api.alarm_models import AlarmPayload, AlarmReportResponse, _REPORT_SUMMARY_MAX_CHARS
 from src.api.dependencies import get_pipeline
 from src.logger import get_logger
 from src.pipeline import IssuePipeline
@@ -48,25 +50,29 @@ async def ingest_alarm(
 
     raw_issue = _build_raw_issue(payload)
 
-    # Stage 1
-    elaboration = await pipeline.qa_elaborate(raw_issue)
+    try:
+        # Stage 1
+        elaboration = await pipeline.qa_elaborate(raw_issue)
 
-    # Stage 2
-    criteria = pipeline.get_validation_criteria()
-    feasibility = await pipeline.qa_assess_feasibility(elaboration, criteria)
+        # Stage 2
+        criteria = pipeline.get_validation_criteria()
+        feasibility = await pipeline.qa_assess_feasibility(elaboration, criteria)
 
-    # Stage 3 (테스트 결과 없이 리포트 생성)
-    empty_results = TestResultSet(
-        source_filename="N/A (알람 자동 처리)",
-        format="unknown",
-        total=0,
-        passed=0,
-        failed=0,
-        skipped=0,
-        test_cases=[],
-        raw_content="",
-    )
-    report = await pipeline.qa_generate_report(elaboration, feasibility, empty_results)
+        # Stage 3 (테스트 결과 없이 리포트 생성)
+        empty_results = TestResultSet(
+            source_filename="alarm_auto",
+            format="unknown",
+            total=0,
+            passed=0,
+            failed=0,
+            skipped=0,
+            test_cases=[],
+            raw_content="",
+        )
+        report = await pipeline.qa_generate_report(elaboration, feasibility, empty_results)
+    except Exception as exc:
+        logger.error("알람 QA 파이프라인 오류: %s - %s", payload.alarm_code, exc)
+        raise HTTPException(status_code=503, detail=f"QA 파이프라인 처리 실패: {exc}") from exc
 
     logger.info(
         "알람 QA 완료: %s → 심각도=%s, 판정=%s, 리포트=%s",
@@ -83,5 +89,5 @@ async def ingest_alarm(
         reasoning=feasibility.reasoning,
         recommended_test_cases=feasibility.recommended_test_cases,
         report_path=str(report.report_path),
-        report_summary=report.report_markdown[:500],
+        report_summary=report.report_markdown[:_REPORT_SUMMARY_MAX_CHARS],
     )
