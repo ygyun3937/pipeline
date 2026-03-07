@@ -295,6 +295,10 @@ class IssuePipeline:
             )
         return self._criteria_loader
 
+    def get_validation_criteria(self) -> "ValidationCriteria":
+        """현재 설정된 QA 검증 기준을 반환한다."""
+        return self._get_criteria_loader().load()
+
     async def qa_elaborate(self, raw_issue: str) -> ElaborationResult:
         """Stage 1: 모호한 이슈를 RAG 기반으로 구체화한다."""
         logger.info("QA Stage 1 - 이슈 구체화 시작: '%s'", raw_issue[:100])

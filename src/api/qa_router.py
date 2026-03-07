@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from src.api.dependencies import get_pipeline
 from src.api.qa_models import (
     ElaborateRequest,
     ElaborateResponse,
@@ -24,12 +25,6 @@ logger = get_logger(__name__)
 _parser = TestResultParser()
 
 router = APIRouter(prefix="/api/v1/qa", tags=["QA"])
-
-
-def _get_pipeline() -> IssuePipeline:
-    """Lazy import to avoid circular imports with main.py."""
-    from src.api.main import get_pipeline
-    return get_pipeline()
 
 
 def _make_empty_retrieval_results():
@@ -75,7 +70,7 @@ def _make_empty_test_results() -> TestResultSet:
 )
 async def elaborate_issue(
     request: ElaborateRequest,
-    pipeline: IssuePipeline = Depends(_get_pipeline),
+    pipeline: IssuePipeline = Depends(get_pipeline),
 ) -> ElaborateResponse:
     """모호한 이슈 설명을 RAG를 통해 구체적인 스펙으로 변환한다."""
     result = await pipeline.qa_elaborate(request.raw_issue)
@@ -99,7 +94,7 @@ async def elaborate_issue(
 )
 async def assess_feasibility(
     request: FeasibilityRequest,
-    pipeline: IssuePipeline = Depends(_get_pipeline),
+    pipeline: IssuePipeline = Depends(get_pipeline),
 ) -> FeasibilityResponse:
     """구체화된 이슈 스펙의 테스트 가능여부를 검증 기준에 따라 판단한다."""
     elaboration = _elaboration_from_feasibility_request(request)
@@ -126,23 +121,41 @@ async def generate_report(
     feasibility_verdict: Annotated[str, Form()],
     feasibility_reasoning: Annotated[str, Form()],
     recommended_test_cases: Annotated[str, Form()] = "[]",
+    symptoms: Annotated[str, Form()] = "",
+    root_cause_hypothesis: Annotated[str, Form()] = "",
+    reproduction_steps: Annotated[str, Form()] = "",
+    expected_vs_actual: Annotated[str, Form()] = "",
+    severity_estimate: Annotated[str, Form()] = "Medium",
+    affected_components_json: Annotated[str, Form()] = "[]",
+    reproducibility_score: Annotated[int, Form(ge=0, le=5)] = 3,
+    measurability_score: Annotated[int, Form(ge=0, le=5)] = 3,
+    acceptance_clarity_score: Annotated[int, Form(ge=0, le=5)] = 3,
+    test_scope_fit: Annotated[bool, Form()] = True,
     test_result_file: Annotated[UploadFile | None, File()] = None,
-    pipeline: IssuePipeline = Depends(_get_pipeline),
+    pipeline: IssuePipeline = Depends(get_pipeline),
 ) -> ReportResponse:
     """테스트 결과 파일(JSON/CSV/MD)과 함께 QA 리포트를 생성하고 저장한다."""
     from src.qa.feasibility import FeasibilityResult
     from src.qa.validation_criteria import ValidationCriteria
 
+    # affected_components_json 파싱
+    try:
+        components = json.loads(affected_components_json)
+        if not isinstance(components, list):
+            components = []
+    except (json.JSONDecodeError, ValueError):
+        components = []
+
     # ElaborationResult 복원
     elaboration = ElaborationResult(
         raw_input=elaborated_spec,
         elaborated_spec=elaborated_spec,
-        symptoms="",
-        root_cause_hypothesis="",
-        reproduction_steps="",
-        expected_vs_actual="",
-        severity_estimate="Medium",
-        affected_components=[],
+        symptoms=symptoms,
+        root_cause_hypothesis=root_cause_hypothesis,
+        reproduction_steps=reproduction_steps,
+        expected_vs_actual=expected_vs_actual,
+        severity_estimate=severity_estimate if severity_estimate in ("Critical", "High", "Medium", "Low") else "Medium",
+        affected_components=components,
         context_used=_make_empty_retrieval_results(),
         model_name="provided",
     )
@@ -159,10 +172,10 @@ async def generate_report(
     feasibility = FeasibilityResult(
         verdict=feasibility_verdict,
         reasoning=feasibility_reasoning,
-        reproducibility_score=3,
-        measurability_score=3,
-        acceptance_clarity_score=3,
-        test_scope_fit=True,
+        reproducibility_score=reproducibility_score,
+        measurability_score=measurability_score,
+        acceptance_clarity_score=acceptance_clarity_score,
+        test_scope_fit=test_scope_fit,
         recommended_test_cases=test_cases_list,
         criteria_applied=ValidationCriteria(
             reproducibility_required=True,
@@ -207,7 +220,7 @@ async def generate_report(
 async def run_pipeline(
     raw_issue: Annotated[str, Form(min_length=1, max_length=5000)],
     test_result_file: Annotated[UploadFile | None, File()] = None,
-    pipeline: IssuePipeline = Depends(_get_pipeline),
+    pipeline: IssuePipeline = Depends(get_pipeline),
 ) -> PipelineResponse:
     """Stage 1 이슈 구체화 → Stage 2 가능여부 판단 → Stage 3 리포트 생성을 순서대로 실행한다."""
     # Stage 1
@@ -274,10 +287,10 @@ async def run_pipeline(
     summary="현재 검증 기준 조회",
 )
 async def get_validation_criteria(
-    pipeline: IssuePipeline = Depends(_get_pipeline),
+    pipeline: IssuePipeline = Depends(get_pipeline),
 ) -> ValidationCriteriaResponse:
     """현재 적용 중인 QA 검증 기준 YAML 내용을 반환한다."""
-    criteria = pipeline._get_criteria_loader().load()
+    criteria = pipeline.get_validation_criteria()
     return ValidationCriteriaResponse(
         reproducibility_required=criteria.reproducibility_required,
         measurability_required=criteria.measurability_required,

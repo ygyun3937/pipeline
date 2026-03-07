@@ -23,10 +23,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api.dependencies import get_pipeline, set_pipeline
 from src.api.models import (
     ErrorResponse,
     HealthResponse,
@@ -46,9 +47,6 @@ from src.pipeline import IssuePipeline
 
 logger = get_logger(__name__)
 
-# 파이프라인 싱글턴 (lifespan에서 초기화)
-_pipeline: IssuePipeline | None = None
-
 APP_VERSION = "0.2.0"
 
 
@@ -58,15 +56,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     FastAPI 애플리케이션 수명주기 관리.
     서버 시작 시 파이프라인을 초기화하고, 종료 시 리소스를 정리한다.
     """
-    global _pipeline  # noqa: PLW0603
-
     settings = get_settings()
     setup_logging(log_level=settings.log_level, log_format=settings.log_format)
 
     logger.info("Issue Pipeline API 서버 시작 중... (v%s)", APP_VERSION)
 
     try:
-        _pipeline = IssuePipeline.from_settings(settings)
+        _pipeline_instance = IssuePipeline.from_settings(settings)
+        set_pipeline(_pipeline_instance)
         logger.info("파이프라인 초기화 완료 - API 서버 준비됨")
     except Exception as exc:
         logger.error("파이프라인 초기화 실패: %s", exc)
@@ -75,17 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield  # 서버 실행 중
 
     logger.info("API 서버 종료 중...")
-    _pipeline = None
-
-
-def get_pipeline() -> IssuePipeline:
-    """FastAPI 의존성 주입: 파이프라인 인스턴스를 반환한다."""
-    if _pipeline is None:
-        raise HTTPException(
-            status_code=503,
-            detail="파이프라인이 초기화되지 않았습니다. 서버를 재시작해주세요.",
-        )
-    return _pipeline
+    set_pipeline(None)
 
 
 # FastAPI 앱 생성
