@@ -243,9 +243,9 @@ class FeasibilityAssessor:
             # Check not-testable variants first (before "testable" to avoid partial match)
             if any(kw in verdict_lower for kw in ("not-testable", "not testable", "테스트 불가", "불가")):
                 verdict = "not-testable"
-            elif any(kw in verdict_lower for kw in ("partially-testable", "partially testable", "부분적으로 테스트 가능", "부분적", "부분")):
+            elif any(kw in verdict_lower for kw in ("partially-testable", "partially testable", "부분적으로 테스트 가능", "부분적")):
                 verdict = "partially-testable"
-            elif any(kw in verdict_lower for kw in ("testable", "테스트 가능", "가능")):
+            elif any(kw in verdict_lower for kw in ("testable", "테스트 가능")):
                 verdict = "testable"
 
         # --- 근거 (Reasoning) ---
@@ -267,7 +267,7 @@ class FeasibilityAssessor:
                         reproducibility_score = score_val
                     elif re.search(r"측정", line):
                         measurability_score = score_val
-                    elif re.search(r"합격|명확", line):
+                    elif re.search(r"명확", line):
                         acceptance_clarity_score = score_val
 
         # --- 테스트 범위 적합성 (Test Scope Fit) ---
@@ -286,10 +286,31 @@ class FeasibilityAssessor:
         test_cases_raw = _extract_section(raw_text, r"권장\s*테스트\s*케이스")
         recommended_test_cases: list[str] = []
         if test_cases_raw:
-            for line in test_cases_raw.splitlines():
-                match = re.match(r"^\d+\.\s+(.+)", line.strip())
-                if match:
-                    recommended_test_cases.append(match.group(1).strip())
+            # Extract multi-line test case blocks
+            # A new test case starts with a digit+period pattern
+            # Each block extends until the next numbered item or end of section
+            current_block_lines: list[str] = []
+            for line in test_cases_raw.split('\n'):
+                stripped = line.strip()
+                if not stripped:
+                    if current_block_lines:
+                        current_block_lines.append('')  # preserve paragraph breaks
+                    continue
+                if re.match(r'^\d+\.', stripped):
+                    if current_block_lines:
+                        block = '\n'.join(current_block_lines).strip()
+                        if block:
+                            recommended_test_cases.append(block)
+                        current_block_lines = []
+                    current_block_lines.append(stripped)
+                else:
+                    if current_block_lines:  # only append if we're inside a block
+                        current_block_lines.append(stripped)
+            # Don't forget the last block
+            if current_block_lines:
+                block = '\n'.join(current_block_lines).strip()
+                if block:
+                    recommended_test_cases.append(block)
 
         # Warn if critical sections are missing
         if not verdict_raw and not reasoning and not scores_raw:
