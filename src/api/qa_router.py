@@ -26,6 +26,17 @@ _parser = TestResultParser()
 
 router = APIRouter(prefix="/api/v1/qa", tags=["QA"])
 
+_VALID_SEVERITIES = ("Critical", "High", "Medium", "Low")
+
+
+def _validate_severity(value: str) -> str:
+    if value not in _VALID_SEVERITIES:
+        logger.warning(
+            "generate-report: 유효하지 않은 severity_estimate 값 '%s', 'Medium'으로 대체됩니다.", value
+        )
+        return "Medium"
+    return value
+
 
 def _make_empty_retrieval_results():
     """빈 RetrievalResults 인스턴스를 생성한다."""
@@ -136,7 +147,6 @@ async def generate_report(
 ) -> ReportResponse:
     """테스트 결과 파일(JSON/CSV/MD)과 함께 QA 리포트를 생성하고 저장한다."""
     from src.qa.feasibility import FeasibilityResult
-    from src.qa.validation_criteria import ValidationCriteria
 
     # affected_components_json 파싱
     try:
@@ -154,7 +164,7 @@ async def generate_report(
         root_cause_hypothesis=root_cause_hypothesis,
         reproduction_steps=reproduction_steps,
         expected_vs_actual=expected_vs_actual,
-        severity_estimate=severity_estimate if severity_estimate in ("Critical", "High", "Medium", "Low") else "Medium",
+        severity_estimate=_validate_severity(severity_estimate),
         affected_components=components,
         context_used=_make_empty_retrieval_results(),
         model_name="provided",
@@ -177,16 +187,7 @@ async def generate_report(
         acceptance_clarity_score=acceptance_clarity_score,
         test_scope_fit=test_scope_fit,
         recommended_test_cases=test_cases_list,
-        criteria_applied=ValidationCriteria(
-            reproducibility_required=True,
-            measurability_required=True,
-            acceptance_criteria_required=True,
-            test_scope="integration",
-            automation_required=False,
-            manual_acceptable=True,
-            custom_rules=[],
-            raw_yaml={},
-        ),
+        criteria_applied=pipeline.get_validation_criteria(),
     )
 
     # 테스트 결과 파싱

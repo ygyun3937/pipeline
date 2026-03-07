@@ -16,7 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.main import app, get_pipeline
+from src.api.dependencies import get_pipeline
+from src.api.main import app
 from src.generation.generator import GenerationResult
 from src.retrieval.retriever import RetrievalResults
 

@@ -295,7 +295,7 @@ class IssuePipeline:
             )
         return self._criteria_loader
 
-    def get_validation_criteria(self) -> "ValidationCriteria":
+    def get_validation_criteria(self) -> ValidationCriteria:
         """현재 설정된 QA 검증 기준을 반환한다."""
         return self._get_criteria_loader().load()
 
