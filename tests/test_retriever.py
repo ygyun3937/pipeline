@@ -17,7 +17,7 @@ from src.retrieval.retriever import IssueRetriever, RetrievalResults, SearchResu
 def _make_mock_vectorstore(search_results: list[tuple[Document, float]]) -> MagicMock:
     """테스트용 Mock 벡터스토어를 생성한다."""
     mock_vs = MagicMock()
-    mock_vs.similarity_search_with_relevance_scores.return_value = search_results
+    mock_vs.similarity_search_with_score.return_value = search_results
     return mock_vs
 
 
@@ -88,18 +88,23 @@ class TestIssueRetriever:
 
     def test_search_returns_filtered_results(self) -> None:
         """유사도 임계값 미만 결과가 필터링되는지 확인한다."""
-        docs_with_scores = [
-            (_make_document("관련 문서 A"), 0.85),
-            (_make_document("관련 문서 B"), 0.70),
-            (_make_document("관련 없는 문서"), 0.20),  # 임계값 0.3 미만 -> 필터링
+        # similarity_search_with_score는 cosine distance를 반환한다 (낮을수록 유사).
+        # retriever 내부에서 score = 1.0 - distance 변환 후 임계값 필터링.
+        # 0.15 distance → 0.85 similarity (통과)
+        # 0.30 distance → 0.70 similarity (통과)
+        # 0.80 distance → 0.20 similarity (임계값 0.3 미만 → 필터링)
+        docs_with_distances = [
+            (_make_document("관련 문서 A"), 0.15),
+            (_make_document("관련 문서 B"), 0.30),
+            (_make_document("관련 없는 문서"), 0.80),
         ]
-        mock_vs = _make_mock_vectorstore(docs_with_scores)
+        mock_vs = _make_mock_vectorstore(docs_with_distances)
         retriever = IssueRetriever(vectorstore=mock_vs, top_k=5, score_threshold=0.3)
 
         results = retriever.search("테스트 쿼리")
 
-        assert len(results.results) == 2  # 0.20짜리는 필터링됨
-        assert results.results[0].score == 0.85
+        assert len(results.results) == 2  # 0.80 distance(=0.20 similarity)는 필터링됨
+        assert results.results[0].score == pytest.approx(0.85)
 
     def test_search_empty_query_returns_empty(self) -> None:
         """빈 쿼리로 검색하면 빈 결과를 반환하는지 확인한다."""
@@ -110,19 +115,21 @@ class TestIssueRetriever:
         assert results.is_empty
 
     def test_search_preserves_rank_order(self) -> None:
-        """검색 결과의 순위가 유사도 순서대로 배정되는지 확인한다."""
-        docs_with_scores = [
-            (_make_document("A"), 0.9),
-            (_make_document("B"), 0.7),
-            (_make_document("C"), 0.5),
+        """검색 결과의 순위가 반환 순서대로 배정되는지 확인한다."""
+        # distance 값으로 전달 (ChromaDB cosine distance 방식)
+        docs_with_distances = [
+            (_make_document("A"), 0.1),   # 0.90 similarity
+            (_make_document("B"), 0.3),   # 0.70 similarity
+            (_make_document("C"), 0.5),   # 0.50 similarity
         ]
-        mock_vs = _make_mock_vectorstore(docs_with_scores)
+        mock_vs = _make_mock_vectorstore(docs_with_distances)
         retriever = IssueRetriever(vectorstore=mock_vs, score_threshold=0.0)
 
         results = retriever.search("쿼리")
 
         ranks = [r.rank for r in results.results]
         assert ranks == [1, 2, 3]
+
 
     def test_invalid_score_threshold_raises(self) -> None:
         """유효하지 않은 임계값으로 초기화하면 ValueError가 발생하는지 확인한다."""
@@ -138,5 +145,5 @@ class TestIssueRetriever:
         retriever.search("쿼리", top_k=3)
 
         # Mock 호출 시 k=3으로 요청되었는지 확인
-        call_kwargs = mock_vs.similarity_search_with_relevance_scores.call_args
+        call_kwargs = mock_vs.similarity_search_with_score.call_args
         assert call_kwargs.kwargs.get("k") == 3 or call_kwargs.args[1] == 3
