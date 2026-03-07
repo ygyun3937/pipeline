@@ -39,6 +39,7 @@ from src.api.models import (
     SearchResultItem,
     StatsResponse,
 )
+from src.api.qa_router import router as qa_router
 from src.config import get_settings
 from src.logger import get_logger, setup_logging
 from src.pipeline import IssuePipeline
@@ -105,6 +106,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# QA 라우터 등록
+app.include_router(qa_router)
 
 
 # ---- 전역 예외 핸들러 ----
