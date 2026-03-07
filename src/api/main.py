@@ -41,6 +41,7 @@ from src.api.models import (
     StatsResponse,
 )
 from src.api.qa_router import router as qa_router
+from src.api.alarm_router import router as alarm_router
 from src.config import get_settings
 from src.logger import get_logger, setup_logging
 from src.pipeline import IssuePipeline
@@ -96,6 +97,7 @@ app.add_middleware(
 
 # QA 라우터 등록
 app.include_router(qa_router)
+app.include_router(alarm_router)
 
 
 # ---- 전역 예외 핸들러 ----
