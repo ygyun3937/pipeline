@@ -22,7 +22,7 @@ from src.embedding.embedder import IssueEmbedder, IndexMode
 from src.generation.generator import GenerationResult, IssueAnswerGenerator
 from src.ingestion.chunker import DocumentChunker
 from src.ingestion.document_loader import DocumentLoader
-from src.llm import ClaudeClient, LLMClient, OllamaClient
+from src.llm import AnthropicClient, ClaudeClient, LLMClient, OllamaClient
 from src.logger import get_logger, setup_logging
 from src.qa.elaboration import ElaborationResult, IssueElaborator
 from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
@@ -103,6 +103,14 @@ class IssuePipeline:
                 model=cfg.ollama_model,
             )
             logger.info("LLM 백엔드: Ollama (%s @ %s)", cfg.ollama_model, cfg.ollama_base_url)
+        elif cfg.llm_backend == "anthropic":
+            if not cfg.anthropic_api_key:
+                raise ValueError("LLM_BACKEND=anthropic 이지만 ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+            llm_client = AnthropicClient(
+                api_key=cfg.anthropic_api_key,
+                model=cfg.anthropic_model,
+            )
+            logger.info("LLM 백엔드: Anthropic API (%s)", cfg.anthropic_model)
         else:
             llm_client = ClaudeClient()
             logger.info("LLM 백엔드: Claude Agent SDK")

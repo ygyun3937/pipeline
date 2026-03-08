@@ -21,9 +21,13 @@ class Settings(BaseSettings):
     )
 
     # ---- LLM 백엔드 설정 ----
-    llm_backend: Literal["claude", "ollama"] = Field(
+    llm_backend: Literal["claude", "anthropic", "ollama"] = Field(
         default="claude",
-        description="LLM 백엔드 선택: claude(인터넷) | ollama(폐쇄망)",
+        description="LLM 백엔드 선택: claude(Agent SDK) | anthropic(API 키 직접 호출) | ollama(폐쇄망)",
+    )
+    anthropic_api_key: str = Field(
+        default="",
+        description="Anthropic API 키 (llm_backend=anthropic 시 사용)",
     )
     ollama_base_url: str = Field(
         default="http://localhost:11434",
