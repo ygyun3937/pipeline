@@ -99,7 +99,7 @@ async def run_demo(pause: bool = False) -> None:
         criteria = pipeline.get_validation_criteria()
         feasibility = await pipeline.qa_assess_feasibility(elaboration, criteria)
         print(f"  판정: {feasibility.verdict}")
-        print(f"  점수: {feasibility.score}/5")
+        print(f"  점수: 재현성 {feasibility.reproducibility_score}/5 | 측정성 {feasibility.measurability_score}/5 | 기준명확성 {feasibility.acceptance_clarity_score}/5")
         print(f"  권장 테스트: {len(feasibility.recommended_test_cases)}개")
         for tc in feasibility.recommended_test_cases[:3]:
             print(f"    - {tc}")
