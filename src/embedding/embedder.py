@@ -17,6 +17,7 @@ paraphrase-multilingual-mpnet-base-v2 선택 이유:
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -195,7 +196,7 @@ class IssueEmbedder:
         total_added = 0
 
         for i in range(0, len(chunks), self.batch_size):
-            batch = chunks[i : i + self.batch_size]
+            batch = [_enrich_chunk_metadata(c) for c in chunks[i : i + self.batch_size]]
 
             # 각 청크에 고유 ID 부여 (file_hash + chunk_index 조합)
             ids = [_generate_chunk_id(chunk) for chunk in batch]
@@ -284,6 +285,39 @@ class IssueEmbedder:
     def vectorstore(self) -> Chroma:
         """LangChain Chroma 인스턴스를 반환한다. Retriever 생성에 사용."""
         return self._vectorstore
+
+
+# 섹션 감지용 키워드 패턴 (순서 중요: 더 구체적인 것 먼저)
+_SECTION_PATTERNS: list[tuple[str, str]] = [
+    ("재발방지", r"재발\s*방지|대책|개선"),
+    ("테스트결과", r"테스트\s*결과|검증\s*결과"),
+    ("조치", r"해결\s*방법|즉시\s*조치|복구|조치\s*방법"),
+    ("원인", r"원인\s*분석|직접\s*원인|근본\s*원인"),
+    ("증상", r"증상|문제\s*현상|장애\s*현상|에러|오류"),
+    ("기본정보", r"기본\s*정보|버그\s*기본|장애\s*개요"),
+]
+
+
+def _detect_section(text: str) -> str:
+    """청크 텍스트에서 마크다운 헤더 또는 키워드로 문서 섹션을 감지한다."""
+    header_match = re.search(r"^#{2,3}\s+(.+)$", text, re.MULTILINE)
+    search_target = header_match.group(1) if header_match else text[:300]
+    for section_name, pattern in _SECTION_PATTERNS:
+        if re.search(pattern, search_target, re.IGNORECASE):
+            return section_name
+    return "기타"
+
+
+def _enrich_chunk_metadata(chunk: Document) -> Document:
+    """ChromaDB 저장 전 청크 메타데이터에 확장 필드를 주입한다."""
+    meta = dict(chunk.metadata)
+    meta.setdefault("doc_id", meta.get("id", meta.get("filename", "")))
+    meta.setdefault("domain", "unknown")
+    meta.setdefault("severity", "unknown")
+    meta.setdefault("status", "unknown")
+    meta.setdefault("alarm_code", "")
+    meta["section"] = _detect_section(chunk.page_content)
+    return Document(page_content=chunk.page_content, metadata=meta)
 
 
 def _generate_chunk_id(chunk: Document) -> str:

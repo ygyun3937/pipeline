@@ -1,3 +1,14 @@
+---
+id: BUG-2024-001
+domain: software
+severity: critical
+status: resolved
+alarm_code: ""
+tags: [login, api, 500-error, connection-pool, database]
+created_at: 2024-03-15
+resolved_at: 2024-03-15
+---
+
 # BUG-2024-001: 로그인 API 500 Internal Server Error
 
 ## 버그 기본 정보

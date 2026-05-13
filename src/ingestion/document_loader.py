@@ -8,9 +8,11 @@ PDF, Markdown, 텍스트 파일을 읽어 LangChain Document 객체로 변환한
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterator
+
+import yaml
 
 from langchain_core.documents import Document
 
@@ -162,16 +164,32 @@ class DocumentLoader:
         ext = path.suffix.lower()
         file_type = "markdown" if ext in (".md", ".markdown") else "text"
 
+        frontmatter, body = _parse_frontmatter(content)
+        if not frontmatter:
+            logger.warning("YAML 헤더 없음: %s — 메타데이터 필터링 불가", path.name)
+
         return [
             Document(
-                page_content=content,
+                page_content=body,
                 metadata=_build_metadata(
                     path=path,
                     file_type=file_type,
                     file_hash=_compute_file_hash(path),
+                    frontmatter=frontmatter,
                 ),
             )
         ]
+
+
+def _parse_frontmatter(content: str) -> tuple[dict, str]:
+    """YAML 프론트매터 파싱. 없으면 빈 dict + 원본 content 반환."""
+    if not content.startswith("---"):
+        return {}, content
+    end = content.find("\n---", 3)
+    if end == -1:
+        return {}, content
+    meta = yaml.safe_load(content[3:end]) or {}
+    return meta, content[end + 4:].lstrip()
 
 
 def _build_metadata(
@@ -180,6 +198,7 @@ def _build_metadata(
     file_hash: str,
     page: int | None = None,
     total_pages: int | None = None,
+    frontmatter: dict | None = None,
 ) -> dict:
     """문서 메타데이터를 구성한다."""
     metadata: dict = {
@@ -193,6 +212,18 @@ def _build_metadata(
         metadata["page"] = page
     if total_pages is not None:
         metadata["total_pages"] = total_pages
+    if frontmatter:
+        fm: dict = {}
+        for k, v in frontmatter.items():
+            if isinstance(v, list):
+                fm[k] = ",".join(str(t) for t in v)
+            elif isinstance(v, (datetime, date)):
+                fm[k] = v.isoformat()
+            elif v is None:
+                fm[k] = ""
+            else:
+                fm[k] = v
+        metadata.update(fm)
     return metadata
 
 

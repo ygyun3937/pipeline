@@ -1,3 +1,14 @@
+---
+id: INCIDENT-2024-008
+domain: incident
+severity: critical
+status: resolved
+alarm_code: ""
+tags: [database, disk-full, p0, audit-log, service-outage, postgresql]
+created_at: 2024-09-20
+resolved_at: 2024-09-20
+---
+
 # INCIDENT-2024-008: 데이터베이스 디스크 용량 초과 장애
 
 ## 장애 개요

@@ -1,3 +1,14 @@
+---
+id: BATTERY-2024-004
+domain: battery
+severity: high
+status: resolved
+alarm_code: CELL-BAL-001
+tags: [cell-imbalance, cv-charge, internal-resistance, eis]
+created_at: 2024-11-05
+resolved_at: 2024-11-06
+---
+
 # 이슈 보고서: CELL-BAL-001 셀 불균형 알람
 
 ## 기본 정보

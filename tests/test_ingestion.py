@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from src.ingestion.chunker import DocumentChunker
-from src.ingestion.document_loader import DocumentLoader
+from src.ingestion.document_loader import DocumentLoader, _parse_frontmatter
 
 
 # ---- DocumentLoader 테스트 ----
@@ -93,6 +93,82 @@ class TestDocumentLoader:
         """존재하지 않는 디렉토리에서 FileNotFoundError가 발생하는지 확인한다."""
         with pytest.raises(FileNotFoundError):
             DocumentLoader(source_dir="/nonexistent/path/12345")
+
+    def test_frontmatter_parsed_into_metadata(self, tmp_path: Path) -> None:
+        """YAML 프론트매터가 Document 메타데이터로 병합되는지 확인한다."""
+        md_file = tmp_path / "BUG-2024-001.md"
+        md_file.write_text(
+            "---\nid: BUG-2024-001\ndomain: software\nseverity: critical\n"
+            "alarm_code: \"\"\ntags: [login, api]\ncreated_at: 2024-03-15\n---\n\n# 내용",
+            encoding="utf-8",
+        )
+
+        loader = DocumentLoader(source_dir=tmp_path)
+        docs = loader.load_file(md_file)
+
+        assert docs[0].metadata["id"] == "BUG-2024-001"
+        assert docs[0].metadata["domain"] == "software"
+        assert docs[0].metadata["severity"] == "critical"
+        assert docs[0].metadata["tags"] == "login,api"  # 리스트 → 쉼표 문자열
+
+    def test_missing_frontmatter_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """YAML 헤더 없는 문서 로드 시 경고 로그가 출력되는지 확인한다."""
+        import logging
+
+        md_file = tmp_path / "no_header.md"
+        md_file.write_text("# 헤더 없는 문서\n\n내용", encoding="utf-8")
+
+        loader = DocumentLoader(source_dir=tmp_path)
+        with caplog.at_level(logging.WARNING):
+            loader.load_file(md_file)
+
+        assert any("YAML 헤더 없음" in r.message for r in caplog.records)
+
+    def test_frontmatter_body_excludes_yaml_block(self, tmp_path: Path) -> None:
+        """프론트매터가 제거된 본문만 page_content에 들어가는지 확인한다."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text(
+            "---\nid: TEST-001\n---\n\n# 본문 제목\n\n본문 내용입니다.",
+            encoding="utf-8",
+        )
+
+        loader = DocumentLoader(source_dir=tmp_path)
+        docs = loader.load_file(md_file)
+
+        assert "---" not in docs[0].page_content
+        assert "id: TEST-001" not in docs[0].page_content
+        assert "본문 제목" in docs[0].page_content
+
+
+# ---- _parse_frontmatter 단위 테스트 ----
+
+class TestParseFrontmatter:
+    """_parse_frontmatter 함수 단위 테스트."""
+
+    def test_valid_frontmatter(self) -> None:
+        content = "---\nid: BUG-001\ndomain: software\n---\n\n본문"
+        meta, body = _parse_frontmatter(content)
+        assert meta == {"id": "BUG-001", "domain": "software"}
+        assert body == "본문"
+
+    def test_no_frontmatter_returns_empty_dict(self) -> None:
+        content = "# 헤더 없음\n\n내용"
+        meta, body = _parse_frontmatter(content)
+        assert meta == {}
+        assert body == content
+
+    def test_unclosed_frontmatter_returns_empty_dict(self) -> None:
+        content = "---\nid: BUG-001\n본문 (닫는 --- 없음)"
+        meta, body = _parse_frontmatter(content)
+        assert meta == {}
+        assert body == content
+
+    def test_tags_list_preserved(self) -> None:
+        content = "---\ntags: [login, api, db]\n---\n\n내용"
+        meta, body = _parse_frontmatter(content)
+        assert meta["tags"] == ["login", "api", "db"]
 
 
 # ---- DocumentChunker 테스트 ----

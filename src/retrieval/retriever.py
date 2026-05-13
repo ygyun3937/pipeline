@@ -133,13 +133,20 @@ class IssueRetriever:
             score_threshold,
         )
 
-    def search(self, query: str, top_k: int | None = None) -> RetrievalResults:
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        filter: dict[str, Any] | None = None,
+    ) -> RetrievalResults:
         """
         쿼리와 유사한 이슈 문서 청크를 검색한다.
 
         Args:
             query: 검색 쿼리 텍스트
             top_k: 반환할 결과 수 (None이면 인스턴스 기본값 사용)
+            filter: ChromaDB where 절 메타데이터 필터
+                예: {"domain": "battery"} 또는 {"severity": "critical"}
 
         Returns:
             RetrievalResults 객체
@@ -151,16 +158,16 @@ class IssueRetriever:
         k = top_k if top_k is not None else self.top_k
         query = query.strip()
 
-        logger.info("검색 시작: query='%s' (top_k=%d)", query[:100], k)
+        logger.info(
+            "검색 시작: query='%s' (top_k=%d, filter=%s)", query[:100], k, filter
+        )
 
         try:
-            # cosine 거리(낮을수록 유사) -> 유사도로 변환: similarity = 1 - distance
-            # hnsw:space=cosine 설정 시 ChromaDB는 [0, 2] 범위 cosine distance 반환
+            search_kwargs: dict[str, Any] = {"query": query, "k": k}
+            if filter:
+                search_kwargs["filter"] = filter
             raw_results: list[tuple[Document, float]] = (
-                self._vectorstore.similarity_search_with_score(
-                    query=query,
-                    k=k,
-                )
+                self._vectorstore.similarity_search_with_score(**search_kwargs)
             )
         except Exception as exc:
             logger.error("벡터 검색 실패: %s", exc)
@@ -192,43 +199,8 @@ class IssueRetriever:
         metadata_filter: dict[str, Any],
         top_k: int | None = None,
     ) -> RetrievalResults:
-        """
-        메타데이터 필터를 적용하여 검색한다.
-        특정 파일 유형이나 소스 파일로 검색 범위를 제한할 때 사용한다.
-
-        Args:
-            query: 검색 쿼리
-            metadata_filter: ChromaDB where 절 필터
-                예: {"file_type": "pdf"} 또는 {"filename": "bug_report.md"}
-            top_k: 반환할 결과 수
-
-        Returns:
-            RetrievalResults 객체
-        """
-        k = top_k if top_k is not None else self.top_k
-        query = query.strip()
-
-        logger.info(
-            "필터 검색 시작: query='%s', filter=%s", query[:100], metadata_filter
-        )
-
-        try:
-            raw_results = self._vectorstore.similarity_search_with_score(
-                query=query,
-                k=k,
-                filter=metadata_filter,
-            )
-        except Exception as exc:
-            logger.error("필터 검색 실패: %s", exc)
-            raise RuntimeError(f"필터 검색 중 오류 발생: {exc}") from exc
-
-        filtered = [
-            SearchResult(document=doc, score=1.0 - distance, rank=rank)
-            for rank, (doc, distance) in enumerate(raw_results, start=1)
-            if (1.0 - distance) >= self.score_threshold
-        ]
-
-        return RetrievalResults(query=query, results=filtered)
+        """메타데이터 필터 검색. search(filter=...) 의 편의 래퍼."""
+        return self.search(query=query, top_k=top_k, filter=metadata_filter)
 
     def as_langchain_retriever(self, **kwargs: Any):
         """

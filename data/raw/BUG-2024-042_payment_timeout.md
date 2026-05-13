@@ -1,3 +1,14 @@
+---
+id: BUG-2024-042
+domain: software
+severity: high
+status: resolved
+alarm_code: ""
+tags: [payment, timeout, async, httpx, event-loop-blocking]
+created_at: 2024-07-03
+resolved_at: 2024-07-10
+---
+
 # BUG-2024-042: 결제 API 간헐적 타임아웃 오류
 
 ## 버그 기본 정보

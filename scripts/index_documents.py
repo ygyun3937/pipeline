@@ -54,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         help="하위 디렉토리의 문서도 포함하여 인덱싱",
     )
     parser.add_argument(
+        "--mode",
+        choices=["add", "update"],
+        default="add",
+        help="인덱싱 모드: add(중복 스킵) | update(기존 청크 삭제 후 재삽입) [기본값: add]",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
@@ -79,6 +85,7 @@ def main() -> int:
     print(f"\n[Issue Pipeline] 문서 인덱싱 시작")
     print(f"  소스 디렉토리: {source_dir}")
     print(f"  하위 디렉토리 포함: {args.recursive}")
+    print(f"  인덱싱 모드: {args.mode}")
     print()
 
     if args.dry_run:
@@ -103,6 +110,7 @@ def main() -> int:
         stats = pipeline.index_documents(
             source_dir=source_dir,
             recursive=args.recursive,
+            mode=args.mode,
         )
 
         elapsed = time.time() - start_time

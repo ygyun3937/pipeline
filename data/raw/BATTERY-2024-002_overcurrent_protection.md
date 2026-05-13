@@ -1,3 +1,14 @@
+---
+id: BATTERY-2024-002
+domain: battery
+severity: high
+status: resolved
+alarm_code: OCP-001
+tags: [overcurrent, cc-charge, inrush-current, staggered-start]
+created_at: 2024-09-03
+resolved_at: 2024-09-04
+---
+
 # 이슈 보고서: OCP-001 과전류 보호 알람
 
 ## 기본 정보

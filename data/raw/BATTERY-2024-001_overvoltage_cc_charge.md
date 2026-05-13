@@ -1,3 +1,14 @@
+---
+id: BATTERY-2024-001
+domain: battery
+severity: critical
+status: resolved
+alarm_code: OVP-001
+tags: [overvoltage, cc-charge, sensor-calibration, voltage-sensor]
+created_at: 2024-08-12
+resolved_at: 2024-08-13
+---
+
 # 이슈 보고서: OVP-001 과전압 알람 (CC 충전 중)
 
 ## 기본 정보

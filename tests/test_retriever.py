@@ -131,6 +131,36 @@ class TestIssueRetriever:
         assert ranks == [1, 2, 3]
 
 
+    def test_search_with_filter_passes_filter_to_vectorstore(self) -> None:
+        """filter 파라미터가 vectorstore에 전달되는지 확인한다."""
+        mock_vs = _make_mock_vectorstore([])
+        retriever = IssueRetriever(vectorstore=mock_vs, top_k=5, score_threshold=0.0)
+
+        retriever.search("쿼리", filter={"domain": "battery"})
+
+        call_kwargs = mock_vs.similarity_search_with_score.call_args
+        assert call_kwargs.kwargs.get("filter") == {"domain": "battery"}
+
+    def test_search_without_filter_does_not_pass_filter_key(self) -> None:
+        """filter 없이 검색 시 vectorstore에 filter 키가 전달되지 않는지 확인한다."""
+        mock_vs = _make_mock_vectorstore([])
+        retriever = IssueRetriever(vectorstore=mock_vs)
+
+        retriever.search("쿼리")
+
+        call_kwargs = mock_vs.similarity_search_with_score.call_args
+        assert "filter" not in (call_kwargs.kwargs or {})
+
+    def test_search_with_filter_convenience_method(self) -> None:
+        """search_with_filter()가 search(filter=...)와 동일하게 동작하는지 확인한다."""
+        mock_vs = _make_mock_vectorstore([])
+        retriever = IssueRetriever(vectorstore=mock_vs, score_threshold=0.0)
+
+        retriever.search_with_filter("쿼리", metadata_filter={"severity": "critical"})
+
+        call_kwargs = mock_vs.similarity_search_with_score.call_args
+        assert call_kwargs.kwargs.get("filter") == {"severity": "critical"}
+
     def test_invalid_score_threshold_raises(self) -> None:
         """유효하지 않은 임계값으로 초기화하면 ValueError가 발생하는지 확인한다."""
         mock_vs = MagicMock()

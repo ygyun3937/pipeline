@@ -16,7 +16,12 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 from langchain_core.documents import Document
 
-from src.embedding.embedder import IssueEmbedder, _generate_chunk_id
+from src.embedding.embedder import (
+    IssueEmbedder,
+    _detect_section,
+    _enrich_chunk_metadata,
+    _generate_chunk_id,
+)
 
 
 def _make_chunk(
@@ -240,6 +245,75 @@ class TestIssueEmbedderUpdateMode:
 
         assert result["total"] == 2
         assert result["added"] == 2
+
+
+class TestDetectSection:
+    """_detect_section 함수 테스트."""
+
+    def test_detects_symptom_section(self) -> None:
+        assert _detect_section("## 문제 현상\n\n에러가 발생했다.") == "증상"
+
+    def test_detects_cause_section(self) -> None:
+        assert _detect_section("## 원인 분석\n\n직접 원인은 풀 고갈이다.") == "원인"
+
+    def test_detects_action_section(self) -> None:
+        assert _detect_section("## 해결 방법\n\n즉시 조치 사항.") == "조치"
+
+    def test_detects_prevention_section(self) -> None:
+        assert _detect_section("## 재발 방지 대책\n\n1. 모니터링 추가") == "재발방지"
+
+    def test_detects_basic_info_section(self) -> None:
+        assert _detect_section("## 기본 정보\n\n이슈 ID: BUG-001") == "기본정보"
+
+    def test_fallback_to_etc(self) -> None:
+        assert _detect_section("그냥 텍스트 내용입니다.") == "기타"
+
+
+class TestEnrichChunkMetadata:
+    """_enrich_chunk_metadata 함수 테스트."""
+
+    def test_adds_section_field(self) -> None:
+        chunk = Document(
+            page_content="## 원인 분석\n\n연결 풀 고갈",
+            metadata={"file_hash": "abc"},
+        )
+        enriched = _enrich_chunk_metadata(chunk)
+        assert enriched.metadata["section"] == "원인"
+
+    def test_sets_doc_id_from_id_field(self) -> None:
+        chunk = Document(
+            page_content="내용",
+            metadata={"id": "BUG-2024-001", "filename": "bug.md"},
+        )
+        enriched = _enrich_chunk_metadata(chunk)
+        assert enriched.metadata["doc_id"] == "BUG-2024-001"
+
+    def test_fallback_doc_id_to_filename(self) -> None:
+        chunk = Document(
+            page_content="내용",
+            metadata={"filename": "bug.md"},
+        )
+        enriched = _enrich_chunk_metadata(chunk)
+        assert enriched.metadata["doc_id"] == "bug.md"
+
+    def test_defaults_domain_to_unknown(self) -> None:
+        chunk = Document(page_content="내용", metadata={})
+        enriched = _enrich_chunk_metadata(chunk)
+        assert enriched.metadata["domain"] == "unknown"
+
+    def test_existing_domain_preserved(self) -> None:
+        chunk = Document(
+            page_content="내용",
+            metadata={"domain": "battery"},
+        )
+        enriched = _enrich_chunk_metadata(chunk)
+        assert enriched.metadata["domain"] == "battery"
+
+    def test_original_chunk_not_mutated(self) -> None:
+        meta = {"file_hash": "abc"}
+        chunk = Document(page_content="내용", metadata=meta)
+        _enrich_chunk_metadata(chunk)
+        assert "section" not in chunk.metadata  # 원본 불변
 
 
 class TestIssueEmbedderBatchSize:

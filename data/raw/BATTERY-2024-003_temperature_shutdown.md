@@ -1,3 +1,14 @@
+---
+id: BATTERY-2024-003
+domain: battery
+severity: critical
+status: resolved
+alarm_code: OTP-001
+tags: [overtemperature, cc-charge, ntc-sensor, connector-oxidation]
+created_at: 2024-10-18
+resolved_at: 2024-10-19
+---
+
 # 이슈 보고서: OTP-001 과온도 보호 알람
 
 ## 기본 정보
