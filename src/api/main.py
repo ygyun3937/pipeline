@@ -23,9 +23,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api.dependencies import get_pipeline, set_pipeline
 from src.api.models import (
@@ -42,6 +45,7 @@ from src.api.models import (
 )
 from src.api.qa_router import router as qa_router
 from src.api.alarm_router import router as alarm_router
+from src.api.submit_router import router as submit_router
 from src.config import get_settings
 from src.logger import get_logger, setup_logging
 from src.pipeline import IssuePipeline
@@ -95,9 +99,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# QA 라우터 등록
+# Static 파일 마운트 (웹 폼 JS)
+_static_dir = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+# 라우터 등록
 app.include_router(qa_router)
 app.include_router(alarm_router)
+app.include_router(submit_router)
 
 
 # ---- 전역 예외 핸들러 ----
