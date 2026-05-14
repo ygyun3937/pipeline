@@ -40,12 +40,12 @@ flowchart LR
 flowchart TD
     T1["✅ Task 1\nYAML 헤더 표준화\n기존 문서 마이그레이션"]
     T2["✅ Task 2\nChromaDB 메타데이터\n스키마 확장"]
-    T3["⏳ Task 3\nbattery validation\ncriteria.yaml"]
+    T3["✅ Task 3\nbattery validation\ncriteria.yaml"]
     T4["✅ Task 4\n배터리 문서 30건\n확충"]
     T5["✅ Task 5\n대화 세션 DB\n모델 설계"]
     T6["✅ Task 6\n스트리밍 Generator\n리팩토링"]
     T7["✅ Task 7\nAPI 인터페이스\n정합화"]
-    T8["⏳ Task 8\n전체 테스트\n커버리지 확인"]
+    T8["✅ Task 8\n전체 테스트\n커버리지 확인"]
 
     T1 --> T2 --> T5
     T2 --> T6
@@ -57,12 +57,12 @@ flowchart TD
 
     style T1 fill:#dcfce7,stroke:#16a34a
     style T2 fill:#dcfce7,stroke:#16a34a
-    style T3 fill:#fef9c3,stroke:#ca8a04
+    style T3 fill:#dcfce7,stroke:#16a34a
     style T4 fill:#dcfce7,stroke:#16a34a
     style T5 fill:#dcfce7,stroke:#16a34a
     style T6 fill:#dcfce7,stroke:#16a34a
     style T7 fill:#dcfce7,stroke:#16a34a
-    style T8 fill:#fef9c3,stroke:#ca8a04
+    style T8 fill:#dcfce7,stroke:#16a34a
 ```
 
 ---
