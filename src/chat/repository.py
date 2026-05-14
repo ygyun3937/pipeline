@@ -18,7 +18,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from src.chat.models import ChatMessage, ChatSession, MessageRole
+from src.chat.models import ChatMessage, ChatSession, FeedbackType, MessageRole
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -70,6 +70,13 @@ class ChatRepository:
             await db.execute(_CREATE_SESSIONS)
             await db.execute(_CREATE_MESSAGES)
             await db.execute(_CREATE_IDX_SESSION)
+            # feedback 컬럼 마이그레이션 (기존 DB 호환)
+            try:
+                await db.execute(
+                    "ALTER TABLE chat_messages ADD COLUMN feedback TEXT DEFAULT NULL"
+                )
+            except aiosqlite.OperationalError:
+                pass  # 이미 존재하는 경우 무시
             await db.commit()
         logger.info("ChatRepository 초기화 완료: %s", self._db_path)
 
@@ -194,6 +201,7 @@ class ChatRepository:
                 role=MessageRole(r["role"]),
                 content=r["content"],
                 context_doc_ids=json.loads(r["context_doc_ids"]),
+                feedback=FeedbackType(r["feedback"]) if r["feedback"] else None,
                 created_at=_parse_dt(r["created_at"]),
             )
             for r in rows
@@ -217,7 +225,20 @@ class ChatRepository:
                 role=MessageRole(r["role"]),
                 content=r["content"],
                 context_doc_ids=json.loads(r["context_doc_ids"]),
+                feedback=FeedbackType(r["feedback"]) if r["feedback"] else None,
                 created_at=_parse_dt(r["created_at"]),
             )
             for r in rows
         ]
+
+    async def update_message_feedback(
+        self, message_id: str, feedback: FeedbackType | None
+    ) -> bool:
+        """메시지 피드백을 업데이트한다. 메시지가 없으면 False를 반환."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                "UPDATE chat_messages SET feedback=? WHERE id=?",
+                (feedback.value if feedback else None, message_id),
+            )
+            await db.commit()
+            return cur.rowcount > 0

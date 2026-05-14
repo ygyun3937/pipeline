@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from src.chat.models import FeedbackType
+
 
 class CreateSessionRequest(BaseModel):
     title: str = Field(default="", max_length=200, description="세션 제목 (비워두면 첫 메시지로 자동 생성)")
@@ -26,9 +28,14 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     context_doc_ids: list[str]
+    feedback: FeedbackType | None = None
     created_at: datetime
 
 
 class ChatStreamRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000, description="사용자 질문")
     top_k: int = Field(default=5, ge=1, le=20, description="RAG 검색 결과 수")
+
+
+class FeedbackRequest(BaseModel):
+    feedback: FeedbackType | None = Field(description="thumbs_up / thumbs_down / null(초기화)")

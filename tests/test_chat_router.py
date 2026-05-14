@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from src.api.dependencies import get_chat_repo, get_pipeline
 from src.api.main import app
-from src.chat.models import ChatMessage, ChatSession, MessageRole
+from src.chat.models import ChatMessage, ChatSession, FeedbackType, MessageRole
 from src.retrieval.retriever import RetrievalResults
 
 
@@ -35,13 +35,20 @@ def _make_session(session_id: str = "s-001", title: str = "새 대화", message_
     )
 
 
-def _make_message(msg_id: str = "m-001", session_id: str = "s-001", role: MessageRole = MessageRole.USER, content: str = "hello") -> ChatMessage:
+def _make_message(
+    msg_id: str = "m-001",
+    session_id: str = "s-001",
+    role: MessageRole = MessageRole.USER,
+    content: str = "hello",
+    feedback: FeedbackType | None = None,
+) -> ChatMessage:
     return ChatMessage(
         id=msg_id,
         session_id=session_id,
         role=role,
         content=content,
         context_doc_ids=[],
+        feedback=feedback,
         created_at=_NOW,
     )
 
@@ -337,3 +344,74 @@ class TestStreamChat:
         self._collect_sse_events(client, "s-001", "질문")
         call_kwargs = mock_pipeline.stream_query.call_args
         assert call_kwargs is not None
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/v1/chat/sessions/{session_id}/messages/{message_id}/feedback
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def client_feedback():
+    """피드백 엔드포인트 전용 클라이언트 픽스처."""
+    msg = _make_message("m-001", feedback=FeedbackType.THUMBS_UP)
+    mock_repo = _make_mock_repo()
+    mock_repo.update_message_feedback = AsyncMock(return_value=True)
+    mock_repo.get_messages = AsyncMock(return_value=[msg])
+
+    app.dependency_overrides[get_chat_repo] = lambda: mock_repo
+
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c, mock_repo
+
+    app.dependency_overrides.clear()
+
+
+class TestUpdateFeedback:
+    _URL = "/api/v1/chat/sessions/s-001/messages/m-001/feedback"
+
+    def test_thumbs_up_returns_200(self, client_feedback):
+        client, _ = client_feedback
+        resp = client.patch(self._URL, json={"feedback": "thumbs_up"})
+        assert resp.status_code == 200
+
+    def test_thumbs_down_returns_200(self, client_feedback):
+        client, _ = client_feedback
+        resp = client.patch(self._URL, json={"feedback": "thumbs_down"})
+        assert resp.status_code == 200
+
+    def test_feedback_null_clears_value(self, client_feedback):
+        client, repo = client_feedback
+        repo.get_messages = AsyncMock(return_value=[_make_message("m-001", feedback=None)])
+        resp = client.patch(self._URL, json={"feedback": None})
+        assert resp.status_code == 200
+        assert resp.json()["feedback"] is None
+
+    def test_response_contains_feedback_field(self, client_feedback):
+        client, _ = client_feedback
+        data = client.patch(self._URL, json={"feedback": "thumbs_up"}).json()
+        assert "feedback" in data
+        assert data["feedback"] == "thumbs_up"
+
+    def test_session_not_found_returns_404(self, client_feedback):
+        client, repo = client_feedback
+        repo.get_session = AsyncMock(return_value=None)
+        resp = client.patch(self._URL, json={"feedback": "thumbs_up"})
+        assert resp.status_code == 404
+
+    def test_message_not_found_returns_404(self, client_feedback):
+        client, repo = client_feedback
+        repo.update_message_feedback = AsyncMock(return_value=False)
+        resp = client.patch(self._URL, json={"feedback": "thumbs_up"})
+        assert resp.status_code == 404
+
+    def test_invalid_feedback_value_returns_422(self, client_feedback):
+        client, _ = client_feedback
+        resp = client.patch(self._URL, json={"feedback": "invalid_value"})
+        assert resp.status_code == 422
+
+    def test_update_called_with_correct_args(self, client_feedback):
+        client, repo = client_feedback
+        client.patch(self._URL, json={"feedback": "thumbs_down"})
+        repo.update_message_feedback.assert_awaited_once_with(
+            "m-001", FeedbackType.THUMBS_DOWN
+        )

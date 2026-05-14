@@ -25,6 +25,7 @@ from fastapi.responses import StreamingResponse
 from src.api.chat_models import (
     ChatStreamRequest,
     CreateSessionRequest,
+    FeedbackRequest,
     MessageResponse,
     SessionResponse,
 )
@@ -94,6 +95,32 @@ async def get_messages(
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
     messages = await repo.get_messages(session_id)
     return [MessageResponse(**m.to_dict()) for m in messages]
+
+
+# ---- 피드백 ----
+
+@router.patch(
+    "/sessions/{session_id}/messages/{message_id}/feedback",
+    response_model=MessageResponse,
+    summary="메시지 피드백",
+)
+async def update_feedback(
+    session_id: str,
+    message_id: str,
+    body: FeedbackRequest,
+    repo: ChatRepository = Depends(get_chat_repo),
+) -> MessageResponse:
+    session = await repo.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    updated = await repo.update_message_feedback(message_id, body.feedback)
+    if not updated:
+        raise HTTPException(status_code=404, detail="메시지를 찾을 수 없습니다.")
+    messages = await repo.get_messages(session_id)
+    msg = next((m for m in messages if m.id == message_id), None)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="메시지를 찾을 수 없습니다.")
+    return MessageResponse(**msg.to_dict())
 
 
 # ---- SSE 스트리밍 ----
