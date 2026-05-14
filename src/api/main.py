@@ -27,8 +27,9 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from src.api.dependencies import get_pipeline, set_pipeline, set_chat_repo
 from src.api.models import (
@@ -110,6 +111,13 @@ app.add_middleware(
 # Static 파일 마운트 (웹 폼 JS)
 _static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+_templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+@app.get("/chat", response_class=HTMLResponse, include_in_schema=False)
+async def chat_page(request: Request) -> HTMLResponse:
+    return _templates.TemplateResponse("chat.html", {"request": request})
 
 # 라우터 등록
 app.include_router(qa_router)
