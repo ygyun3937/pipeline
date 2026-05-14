@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 
@@ -15,4 +16,8 @@ class LLMClient(Protocol):
 
     async def complete(self, system_prompt: str, user_message: str) -> str:
         """시스템 프롬프트와 사용자 메시지를 받아 LLM 응답 텍스트를 반환한다."""
+        ...
+
+    def stream(self, system_prompt: str, user_message: str) -> AsyncIterator[str]:
+        """응답 텍스트를 청크 단위로 스트리밍한다."""
         ...

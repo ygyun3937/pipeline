@@ -1,6 +1,8 @@
 """Anthropic API를 직접 사용하는 LLM 클라이언트."""
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import anthropic
 
 from src.logger import get_logger
@@ -28,3 +30,13 @@ class AnthropicClient:
             messages=[{"role": "user", "content": user_message}],
         )
         return message.content[0].text
+
+    async def stream(self, system_prompt: str, user_message: str) -> AsyncIterator[str]:  # type: ignore[override]
+        async with self._client.messages.stream(
+            model=self._model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        ) as s:
+            async for text in s.text_stream:
+                yield text

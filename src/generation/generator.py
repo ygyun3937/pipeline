@@ -14,6 +14,7 @@ LLMClient를 사용하여 검색된 이슈 문서를 바탕으로
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
@@ -240,3 +241,37 @@ class IssueAnswerGenerator:
         """
         empty_results = RetrievalResults(query=question, results=[])
         return await self.generate(question=question, retrieval_results=empty_results)
+
+    async def generate_stream(
+        self,
+        question: str,
+        retrieval_results: RetrievalResults,
+    ) -> AsyncGenerator[str, None]:
+        """
+        응답 텍스트를 청크 단위로 스트리밍한다.
+
+        각 청크는 str이며, 호출자가 SSE 등의 형식으로 래핑한다.
+        AnthropicClient / OllamaClient는 진짜 토큰 스트리밍을,
+        ClaudeClient는 완성 후 단일 청크로 yield한다.
+
+        Yields:
+            str: 텍스트 청크
+        """
+        if not question or not question.strip():
+            raise ValueError("질문이 비어 있습니다.")
+
+        question = question.strip()
+
+        if retrieval_results.is_empty:
+            user_message = NO_CONTEXT_QUERY_TEMPLATE.format(question=question)
+        else:
+            user_message = RAG_QUERY_TEMPLATE.format(
+                context=retrieval_results.get_context_text(), question=question
+            )
+
+        logger.info("스트리밍 생성 시작: question='%s'", question[:100])
+
+        async for chunk in self._llm.stream(SYSTEM_PROMPT, user_message):
+            yield chunk
+
+        logger.info("스트리밍 생성 완료")

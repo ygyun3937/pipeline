@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from openai import AsyncOpenAI
 
 from src.logger import get_logger
@@ -31,3 +33,17 @@ class OllamaClient:
             ],
         )
         return resp.choices[0].message.content or ""
+
+    async def stream(self, system_prompt: str, user_message: str) -> AsyncIterator[str]:  # type: ignore[override]
+        resp = await self._openai.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            stream=True,
+        )
+        async for chunk in resp:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta

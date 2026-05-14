@@ -55,3 +55,56 @@ class TestOllamaClient:
 
         result = await client.complete("시스템", "메시지")
         assert result == "Ollama 응답"
+
+    @pytest.mark.asyncio
+    async def test_stream_yields_chunks(self):
+        client = OllamaClient(base_url="http://localhost:11434", model="qwen2.5:7b")
+
+        async def fake_stream():
+            for text in ["안녕", "하세요"]:
+                chunk = MagicMock()
+                chunk.choices[0].delta.content = text
+                yield chunk
+
+        client._openai.chat.completions.create = AsyncMock(return_value=fake_stream())
+
+        chunks = []
+        async for chunk in client.stream("시스템", "메시지"):
+            chunks.append(chunk)
+        assert chunks == ["안녕", "하세요"]
+
+    @pytest.mark.asyncio
+    async def test_stream_skips_none_delta(self):
+        client = OllamaClient(base_url="http://localhost:11434", model="qwen2.5:7b")
+
+        async def fake_stream():
+            for text in [None, "내용", None]:
+                chunk = MagicMock()
+                chunk.choices[0].delta.content = text
+                yield chunk
+
+        client._openai.chat.completions.create = AsyncMock(return_value=fake_stream())
+
+        chunks = []
+        async for chunk in client.stream("시스템", "메시지"):
+            chunks.append(chunk)
+        assert chunks == ["내용"]
+
+
+class TestClaudeClientStream:
+    @pytest.mark.asyncio
+    async def test_stream_yields_complete_response_as_single_chunk(self):
+        client = ClaudeClient()
+        mock_msg = MagicMock()
+        mock_msg.result = "전체 응답 텍스트"
+
+        async def fake_query(*args, **kwargs):
+            yield mock_msg
+
+        with patch("src.llm.claude_client.query", side_effect=fake_query):
+            chunks = []
+            async for chunk in client.stream("시스템", "메시지"):
+                chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert chunks[0] == "전체 응답 텍스트"

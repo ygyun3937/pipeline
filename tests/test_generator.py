@@ -28,10 +28,19 @@ from src.generation.generator import (
 from src.retrieval.retriever import RetrievalResults, SearchResult
 
 
+def _make_async_gen(*chunks: str):
+    """지정한 청크를 순서대로 yield하는 async generator를 반환한다."""
+    async def _gen():
+        for chunk in chunks:
+            yield chunk
+    return _gen()
+
+
 def _make_mock_llm(model_name: str = "test-model") -> MagicMock:
     """LLMClient Mock을 생성한다."""
     mock = MagicMock()
     mock.complete = AsyncMock(return_value="mock response")
+    mock.stream = MagicMock(return_value=_make_async_gen("mock ", "stream"))
     mock.model_name = model_name
     return mock
 
@@ -228,6 +237,59 @@ class TestIssueAnswerGeneratorWithoutContext:
         assert isinstance(result, GenerationResult)
         assert result.has_context is False
         assert result.question == "테스트 질문"
+
+
+class TestGenerateStream:
+    """IssueAnswerGenerator.generate_stream() 스트리밍 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_stream_yields_chunks_with_context(self) -> None:
+        mock_llm = _make_mock_llm()
+        mock_llm.stream = MagicMock(return_value=_make_async_gen("### 1. 증상\n", "과전압"))
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
+        result_item = _make_search_result("이슈 문서")
+        retrieval = _make_retrieval_results([result_item])
+
+        chunks = []
+        async for chunk in generator.generate_stream("OVP 원인은?", retrieval):
+            chunks.append(chunk)
+
+        assert chunks == ["### 1. 증상\n", "과전압"]
+
+    @pytest.mark.asyncio
+    async def test_stream_yields_chunks_without_context(self) -> None:
+        mock_llm = _make_mock_llm()
+        mock_llm.stream = MagicMock(return_value=_make_async_gen("컨텍스트 없는 답변"))
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
+        retrieval = _make_retrieval_results([])
+
+        chunks = []
+        async for chunk in generator.generate_stream("질문", retrieval):
+            chunks.append(chunk)
+
+        assert chunks == ["컨텍스트 없는 답변"]
+
+    @pytest.mark.asyncio
+    async def test_stream_empty_question_raises_value_error(self) -> None:
+        generator = IssueAnswerGenerator(llm_client=_make_mock_llm())
+        retrieval = _make_retrieval_results()
+
+        with pytest.raises(ValueError, match="질문이 비어 있습니다"):
+            async for _ in generator.generate_stream("", retrieval):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_stream_accumulates_full_answer(self) -> None:
+        mock_llm = _make_mock_llm()
+        mock_llm.stream = MagicMock(return_value=_make_async_gen("파트1 ", "파트2 ", "파트3"))
+        generator = IssueAnswerGenerator(llm_client=mock_llm)
+        retrieval = _make_retrieval_results()
+
+        full = ""
+        async for chunk in generator.generate_stream("질문", retrieval):
+            full += chunk
+
+        assert full == "파트1 파트2 파트3"
 
 
 class TestSystemPrompt:

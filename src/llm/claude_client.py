@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 
@@ -38,3 +39,9 @@ class ClaudeClient:
             finally:
                 if claudecode_env is not None:
                     os.environ["CLAUDECODE"] = claudecode_env
+
+    async def stream(self, system_prompt: str, user_message: str) -> AsyncIterator[str]:  # type: ignore[override]
+        # claude_agent_sdk는 진짜 스트리밍을 지원하지 않으므로
+        # complete() 결과를 단일 청크로 yield한다.
+        result = await self.complete(system_prompt, user_message)
+        yield result
