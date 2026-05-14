@@ -41,10 +41,10 @@ flowchart TD
     T1["✅ Task 1\nYAML 헤더 표준화\n기존 문서 마이그레이션"]
     T2["✅ Task 2\nChromaDB 메타데이터\n스키마 확장"]
     T3["⏳ Task 3\nbattery validation\ncriteria.yaml"]
-    T4["⏳ Task 4\n배터리 문서 30건\n확충"]
-    T5["⏳ Task 5\n대화 세션 DB\n모델 설계"]
-    T6["⏳ Task 6\n스트리밍 Generator\n리팩토링"]
-    T7["⏳ Task 7\nAPI 인터페이스\n정합화"]
+    T4["✅ Task 4\n배터리 문서 30건\n확충"]
+    T5["✅ Task 5\n대화 세션 DB\n모델 설계"]
+    T6["✅ Task 6\n스트리밍 Generator\n리팩토링"]
+    T7["✅ Task 7\nAPI 인터페이스\n정합화"]
     T8["⏳ Task 8\n전체 테스트\n커버리지 확인"]
 
     T1 --> T2 --> T5
@@ -58,10 +58,10 @@ flowchart TD
     style T1 fill:#dcfce7,stroke:#16a34a
     style T2 fill:#dcfce7,stroke:#16a34a
     style T3 fill:#fef9c3,stroke:#ca8a04
-    style T4 fill:#fef9c3,stroke:#ca8a04
-    style T5 fill:#fef9c3,stroke:#ca8a04
-    style T6 fill:#fef9c3,stroke:#ca8a04
-    style T7 fill:#fef9c3,stroke:#ca8a04
+    style T4 fill:#dcfce7,stroke:#16a34a
+    style T5 fill:#dcfce7,stroke:#16a34a
+    style T6 fill:#dcfce7,stroke:#16a34a
+    style T7 fill:#dcfce7,stroke:#16a34a
     style T8 fill:#fef9c3,stroke:#ca8a04
 ```
 
@@ -272,6 +272,13 @@ uv run python scripts/query_cli.py "DB 연결 풀 고갈 원인은?"
 | POST | `/api/v1/qa/feasibility` | QA Stage 2: 테스트 가능성 판단 |
 | POST | `/api/v1/qa/report` | QA Stage 3: 리포트 생성 |
 | POST | `/api/v1/alarm/ingest` | 배터리 알람 수신 및 처리 |
+| POST | `/api/v1/chat/sessions` | 대화 세션 생성 |
+| GET  | `/api/v1/chat/sessions` | 세션 목록 조회 |
+| GET  | `/api/v1/chat/sessions/{id}` | 세션 조회 |
+| DELETE | `/api/v1/chat/sessions/{id}` | 세션 삭제 |
+| GET  | `/api/v1/chat/sessions/{id}/messages` | 메시지 목록 |
+| POST | `/api/v1/chat/sessions/{id}/stream` | SSE 스트리밍 질문 |
+| GET  | `/submit` | 이슈 등록 웹 폼 |
 
 ---
 

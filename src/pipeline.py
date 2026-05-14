@@ -267,6 +267,29 @@ class IssuePipeline:
 
         return result
 
+    async def stream_query(
+        self,
+        question: str,
+        top_k: int | None = None,
+    ):
+        """
+        질문을 RAG로 처리하고 텍스트 청크를 스트리밍한다.
+
+        Yields:
+            str: 텍스트 청크 (AsyncGenerator[str, None])
+            RetrievalResults: 검색 결과 (첫 번째 yield 전에 내부적으로 수행)
+
+        Returns:
+            tuple(AsyncGenerator[str, None], RetrievalResults)
+        """
+        retrieval_results = self._retriever.search(question, top_k=top_k)
+
+        async def _gen():
+            async for chunk in self._generator.generate_stream(question, retrieval_results):
+                yield chunk
+
+        return _gen(), retrieval_results
+
     def search_only(
         self,
         query: str,

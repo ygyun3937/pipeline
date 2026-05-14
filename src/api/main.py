@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.dependencies import get_pipeline, set_pipeline
+from src.api.dependencies import get_pipeline, set_pipeline, set_chat_repo
 from src.api.models import (
     ErrorResponse,
     HealthResponse,
@@ -46,6 +46,8 @@ from src.api.models import (
 from src.api.qa_router import router as qa_router
 from src.api.alarm_router import router as alarm_router
 from src.api.submit_router import router as submit_router
+from src.api.chat_router import router as chat_router
+from src.chat.repository import ChatRepository
 from src.config import get_settings
 from src.logger import get_logger, setup_logging
 from src.pipeline import IssuePipeline
@@ -69,6 +71,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         _pipeline_instance = IssuePipeline.from_settings(settings)
         set_pipeline(_pipeline_instance)
+
+        _chat_repo = ChatRepository(settings.chat_db_path)
+        await _chat_repo.initialize()
+        set_chat_repo(_chat_repo)
+
         logger.info("파이프라인 초기화 완료 - API 서버 준비됨")
     except Exception as exc:
         logger.error("파이프라인 초기화 실패: %s", exc)
@@ -78,6 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info("API 서버 종료 중...")
     set_pipeline(None)
+    set_chat_repo(None)
 
 
 # FastAPI 앱 생성
@@ -107,6 +115,7 @@ app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 app.include_router(qa_router)
 app.include_router(alarm_router)
 app.include_router(submit_router)
+app.include_router(chat_router)
 
 
 # ---- 전역 예외 핸들러 ----
