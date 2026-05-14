@@ -122,6 +122,16 @@ class Settings(BaseSettings):
         default="QA_REPORT", description="QA 리포트 파일명 접두사"
     )
 
+    # ---- 대화 세션 설정 ----
+    chat_db_path: str = Field(
+        default="./data/chat.db",
+        description="대화 세션 SQLite DB 파일 경로",
+    )
+    chat_session_max_messages: int = Field(
+        default=50,
+        description="세션당 최대 메시지 수 (초과 시 오래된 메시지 제거)",
+    )
+
     @property
     def chroma_persist_path(self) -> Path:
         """ChromaDB 절대 경로 반환."""
