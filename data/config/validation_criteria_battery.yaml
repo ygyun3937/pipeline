@@ -1,0 +1,213 @@
+# QA 검증 기준 설정 파일 - 배터리 도메인 전용
+# 배터리/충방전 장비 도메인 이슈에 특화된 검증 기준을 정의한다.
+# API 재시작 없이 핫리로드로 변경사항이 즉시 반영됩니다.
+
+version: "1.0"
+domain: "battery"
+
+# ---- 공통 기본 기준 ----
+
+reproducibility:
+  required: true
+  min_steps: 3
+  environment_required: true
+  environment_fields:
+    - "테스트 단계 (CC_CHARGE / CV_CHARGE / DISCHARGE / REST / FORMATION / AGING)"
+    - "온도 조건 (°C)"
+    - "충방전율 (C-rate)"
+    - "채널/유닛 번호"
+    - "배터리 배치(Lot) 번호"
+
+measurability:
+  required: true
+  quantitative_criteria_required: true   # 전압/전류/온도는 반드시 수치 기준 명시
+  binary_verdict_required: true
+  required_units:
+    voltage: "V 또는 mV"
+    current: "A 또는 mA"
+    temperature: "°C"
+    impedance: "mΩ 또는 Ω"
+    capacity: "Ah 또는 mAh"
+    soc: "% (0~100)"
+
+acceptance_criteria:
+  required: true
+  explicit_criteria_required: true
+  min_criteria_count: 3   # 알람 임계값 + 측정 허용 오차 + 검증 반복 횟수
+
+test_scope:
+  level: "integration"
+  automation_required: false
+  manual_acceptable: true
+
+# ---- 심각도별 오버라이드 ----
+
+severity_overrides:
+  Critical:
+    automation_required: true
+    min_steps: 3
+    min_reproduction_count: 3     # 동일 조건 3회 이상 재현 필수
+    safety_protocol_required: true
+    isolation_check_required: true # 절연 저항 측정 필수
+    quantitative_criteria_required: true
+  High:
+    automation_required: false
+    min_steps: 3
+    min_reproduction_count: 2
+    quantitative_criteria_required: true
+  Medium:
+    manual_acceptable: true
+    min_steps: 2
+    min_reproduction_count: 1
+    quantitative_criteria_required: true
+  Low:
+    manual_acceptable: true
+    min_steps: 2
+    quantitative_criteria_required: false
+
+# ---- 알람 코드별 전용 규칙 ----
+
+alarm_specific_rules:
+  OVP:                    # Over Voltage Protection
+    - "측정 전압값과 BMS 표시값을 기준 전압계(멀티미터)와 반드시 비교할 것"
+    - "전압 센서 캘리브레이션 오프셋 측정 포함 (±5mV 이내 합격)"
+    - "알람 발생 전후 전압 프로파일(최소 10초 구간) 첨부"
+    - "CC 충전과 CV 충전 각각 구분하여 기록"
+
+  UVP:                    # Under Voltage Protection
+    - "방전 말기(SOC 10% 이하) 전압 강하 기울기 측정 필수"
+    - "SOC 추정값과 OCV 기반 실측 SOC 비교"
+    - "리튬 도금 이력 여부 확인 (EIS 측정 권장)"
+
+  OCP:                    # Over Current Protection
+    - "피크 전류 파형 측정 (오실로스코프 또는 전류 클램프 미터)"
+    - "inrush current와 정상 운전 전류 구분 기록"
+    - "공유 전원 모듈(PSU) 채널 구성 명시"
+    - "스태거드 스타트 적용 여부 기록"
+
+  OTP:                    # Over Temperature Protection
+    - "NTC 센서값과 기준 온도계(열화상 카메라 또는 접촉식) 동시 측정 필수"
+    - "센서 오차 ±3°C 이내 확인"
+    - "환경 온도(챔버/실내) 별도 기록"
+    - "알람 발생 위치(셀 표면 vs BMS 센서)를 구분하여 보고"
+
+  LTF:                    # Low Temperature Fault
+    - "배터리 표면 온도와 BMS 온도 센서값 동시 기록"
+    - "저온 충전 프로토콜(프리히팅 여부) 명시"
+    - "리튬 도금 위험 평가 포함 (EIS 또는 내부 저항 측정)"
+    - "온도 임계값 채널별 설정 일치 여부 확인"
+
+  CELL_BAL:               # Cell Balance Alarm
+    - "각 셀 전압 개별 측정값 전체 첨부 (단위: mV)"
+    - "EIS로 내부 저항 측정 필수 (합격 기준: 25mΩ 이하)"
+    - "패시브 발란싱 회로 도통 시험 포함"
+    - "동일 배치(Lot) 전체 팩 점검 결과 첨부"
+
+  ISO:                    # Isolation Fault
+    - "절연 저항 측정값 명시 (안전 기준: ≥10MΩ)"
+    - "측정 방법: 음극-섀시, 양극-섀시 각각 측정"
+    - "즉시 전원 차단 및 격리 조치 기록 필수"
+    - "절연 내력 시험(AC 500V, 1분) 결과 포함"
+    - "누액 흔적 및 파손 부위 사진 첨부"
+
+  IMP:                    # Impedance Alarm
+    - "EIS 측정으로 오믹 저항, SEI 저항, 전하이동 저항 분리 기록"
+    - "초기값 대비 현재 임피던스 증가율 계산"
+    - "에이징 사이클 수 및 운전 온도 이력 포함"
+    - "용량 유지율(SOH) 함께 기록"
+
+  SOC_ERR:                # SOC Estimation Error
+    - "쿨롱 카운팅 전류 센서 오프셋 측정값 기록"
+    - "OCV 기반 실측 SOC와 BMS 표시 SOC 비교"
+    - "오차 발생 사이클 구간 특정"
+
+  BMS_FW:                 # BMS Firmware Error
+    - "펌웨어 버전 (이전 버전 및 현재 버전) 명시"
+    - "에러 로그 전체 첨부 (워치독, CAN 오류 포함)"
+    - "채널 수 및 CAN 버스 트래픽 측정값 포함"
+
+  COMM:                   # Communication Error
+    - "CAN 버스 오류율 측정값 기록"
+    - "접지 전위 차이 측정 (RACK 간)"
+    - "통신 파형 캡처 (오실로스코프) 첨부"
+
+  SWEL:                   # Cell Swell
+    - "두께 측정값 및 변화량 기록 (초기값 대비, 단위: mm)"
+    - "즉시 격리 및 방화 구역 이동 조치 기록 필수"
+    - "가스 성분 분석 결과 포함 (가능한 경우)"
+    - "충방전 이력에서 과충전/과방전 구간 확인"
+
+  INT_SHT:                # Internal Short Circuit
+    - "즉시 전원 차단 및 안전 격리 조치 기록 필수 (최우선)"
+    - "온도 모니터링 이력 (알람 발생 후 30분) 첨부"
+    - "분해 분석 결과 (세퍼레이터 상태, 이물질) 포함"
+    - "열폭주 진행 여부 판정 및 근거 명시"
+
+# ---- 테스트 단계별 규칙 ----
+
+phase_specific_rules:
+  CC_CHARGE:
+    - "충전율(C-rate) 및 목표 전압 명시"
+    - "전류 제한값과 실측 전류 기록"
+  CV_CHARGE:
+    - "컷오프 전류 기준 명시 (예: C/20)"
+    - "CV 단계 소요 시간 기록"
+    - "수렴 여부 판정 기준 명시"
+  DISCHARGE:
+    - "방전율(C-rate) 및 컷오프 전압 명시"
+    - "방전 용량 측정값 기록 (Ah)"
+  REST:
+    - "휴지 시간 및 OCV 안정화 기준 명시"
+    - "OCV 측정값 기록"
+  FORMATION:
+    - "포메이션 프로파일(전류/전압/온도 조건) 첨부"
+    - "챔버 온도 및 냉각 상태 기록"
+    - "가스 발생 여부 모니터링 결과 포함"
+  AGING:
+    - "총 사이클 수 및 용량 유지율 기록"
+    - "에이징 온도 조건 및 C-rate 명시"
+    - "임피던스 트렌드 (100사이클 단위) 포함"
+
+# ---- 안전 프로토콜 ----
+
+safety_protocol:
+  critical_alarm_response:
+    - "알람 발생 즉시 충방전 중단 및 전원 차단"
+    - "해당 채널 격리 (타 채널과 물리적 분리)"
+    - "30분간 온도 모니터링 (열폭주 여부 확인)"
+    - "담당 안전 관리자에게 즉시 보고"
+  isolation_fault:
+    - "고전압 팩(48V 이상)은 절연 장갑 착용 후 취급"
+    - "방화 용기로 즉시 이동"
+  swell_handling:
+    - "팽창 배터리는 개방된 공간(환기 구역)으로 이동"
+    - "충전 금지, 재사용 금지"
+
+# ---- 리포트 설정 ----
+
+report:
+  language: "ko"
+  filename_prefix: "QA_BATTERY_REPORT"
+  sections:
+    - "배터리 이슈 개요"
+    - "알람 코드 및 테스트 단계"
+    - "측정값 및 임계값 비교"
+    - "테스트 가능성 평가"
+    - "재현 절차"
+    - "안전 조치 이력"
+    - "권장 테스트 케이스"
+    - "재발 방지 권고사항"
+
+# ---- 배터리 도메인 전용 커스텀 규칙 ----
+
+custom_rules:
+  - "전압 관련 알람(OVP/UVP)은 반드시 캘리브레이션 검증 단계를 포함해야 합니다."
+  - "전류 관련 알람(OCP)은 inrush current 및 피크 전류 파형 측정을 포함해야 합니다."
+  - "온도 관련 알람(OTP/LTF)은 NTC 센서 오차 검증 및 실제 표면 온도 비교를 포함해야 합니다."
+  - "셀 불균형 알람(CELL-BAL)은 EIS 측정 또는 셀별 전압 편차 정량 분석을 포함해야 합니다."
+  - "Critical 알람은 동일 조건 3회 이상 재현 테스트가 필요합니다."
+  - "절연 이상(ISO) 및 내부 단락(INT-SHT)은 안전 프로토콜 준수 여부를 먼저 확인합니다."
+  - "AGING 테스트 이슈는 챔버 온도 이력 로그를 필수로 첨부해야 합니다."
+  - "BMS 펌웨어 관련 이슈는 이전/현재 펌웨어 버전과 변경 이력을 명시해야 합니다."
+  - "스웰링(SWEL) 또는 가스 발생 이슈는 해당 배치(Lot) 전체에 대한 점검 결과를 포함해야 합니다."
+  - "전해질 품질 이슈(누액, 수분 혼입)는 Karl Fischer 수분 측정값을 포함해야 합니다."
