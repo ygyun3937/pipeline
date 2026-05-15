@@ -549,6 +549,209 @@ resolved_at: 2024-08-13
 
 ---
 
+## 장비 제어 아키텍처 (PC-to-PC 중앙 백엔드)
+
+여러 장비 PC를 중앙 서버에서 제어하는 구성. 현재 FastAPI 백엔드를 제어 허브로 확장한다.
+
+### 전체 시스템 구조
+
+```mermaid
+graph TB
+    subgraph "운영자 PC"
+        UI[웹 대시보드]
+        CLI[CLI 제어 도구]
+    end
+
+    subgraph "중앙 백엔드 서버 PC"
+        API[FastAPI REST + WebSocket]
+        ORC[오케스트레이터\n명령 시퀀스 관리]
+        CQ[명령 큐\nasyncio.Queue]
+        SM[상태 관리자\n장비별 현재 상태]
+        DB[(PostgreSQL\n명령 이력 / 장비 등록)]
+        LOG[감사 로그]
+    end
+
+    subgraph "장비 PC-1 (충방전기 A)"
+        AG1[장비 에이전트\nFastAPI 경량 서버]
+        HW1[하드웨어 드라이버\nModbus / RS-485]
+        EQ1[실제 장비]
+    end
+
+    subgraph "장비 PC-2 (충방전기 B)"
+        AG2[장비 에이전트]
+        HW2[하드웨어 드라이버]
+        EQ2[실제 장비]
+    end
+
+    subgraph "장비 PC-3 (온도 챔버)"
+        AG3[장비 에이전트]
+        HW3[하드웨어 드라이버]
+        EQ3[실제 장비]
+    end
+
+    UI <-->|HTTP/WebSocket| API
+    CLI <-->|HTTP| API
+    API --> ORC --> CQ --> SM
+    SM <-->|REST/WebSocket| AG1
+    SM <-->|REST/WebSocket| AG2
+    SM <-->|REST/WebSocket| AG3
+    ORC --> DB
+    ORC --> LOG
+    AG1 --> HW1 --> EQ1
+    AG2 --> HW2 --> EQ2
+    AG3 --> HW3 --> EQ3
+```
+
+### 명령 흐름
+
+```mermaid
+sequenceDiagram
+    actor 운영자
+    participant API as 백엔드 API
+    participant ORC as 오케스트레이터
+    participant CQ as 명령 큐
+    participant AG1 as 장비 PC-1
+    participant AG2 as 장비 PC-2
+
+    운영자->>API: POST /commands/sequence\n{"steps": ["A충전", "B방전"]}
+    API->>ORC: 시퀀스 등록
+    ORC->>CQ: 명령 1 enqueue (A충전)
+    ORC-->>API: sequence_id: "SEQ-001"
+    API-->>운영자: 202 Accepted
+
+    CQ->>AG1: POST /execute {"cmd": "charge", "params": {...}}
+    AG1-->>CQ: 200 OK (started)
+    AG1-)API: WebSocket {"status": "running", "progress": 45%}
+    API-)운영자: 실시간 상태 업데이트
+
+    AG1-)API: WebSocket {"status": "done"}
+    API->>ORC: 명령 1 완료 → 명령 2 unlock
+    ORC->>CQ: 명령 2 enqueue (B방전)
+    CQ->>AG2: POST /execute {"cmd": "discharge", ...}
+
+    Note over AG1,AG2: 장비 이상 발생 시
+    AG2-)API: WebSocket {"status": "ERROR", "code": "OVER_TEMP"}
+    API->>ORC: 긴급 중단 처리
+    ORC->>AG1: POST /estop
+    ORC->>AG2: POST /estop
+    API-)운영자: 알람 전송
+```
+
+### 장비 상태 머신
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE : 부팅 완료
+    IDLE --> READY : 자가진단 통과
+    READY --> RUNNING : 명령 수신
+    RUNNING --> PAUSED : pause 명령
+    PAUSED --> RUNNING : resume 명령
+    RUNNING --> DONE : 작업 완료
+    DONE --> IDLE : reset 명령
+    RUNNING --> ERROR : 이상 감지
+    PAUSED --> ERROR : 이상 감지
+    ERROR --> IDLE : 에러 해제 + reset
+    READY --> ESTOP : E-STOP 신호
+    RUNNING --> ESTOP : E-STOP 신호
+    ESTOP --> IDLE : 안전 확인 후 복구
+
+    note right of ERROR
+        OVER_TEMP
+        OVER_CURRENT
+        COMM_TIMEOUT
+        HW_FAULT
+    end note
+```
+
+### 데이터 모델
+
+```mermaid
+erDiagram
+    DEVICE {
+        string id PK
+        string name
+        string ip_address
+        int port
+        string type
+        string status
+        timestamp last_heartbeat
+    }
+    SEQUENCE {
+        string id PK
+        string name
+        jsonb steps
+        string status
+        string created_by
+        timestamp created_at
+    }
+    COMMAND {
+        string id PK
+        string sequence_id FK
+        string device_id FK
+        string type
+        jsonb params
+        string status
+        int retry_count
+        timestamp issued_at
+        timestamp completed_at
+    }
+    COMMAND_LOG {
+        string id PK
+        string command_id FK
+        string event
+        jsonb payload
+        timestamp occurred_at
+    }
+    DEVICE_STATE {
+        string device_id FK
+        string status
+        float temperature
+        float voltage
+        float current
+        timestamp measured_at
+    }
+
+    DEVICE ||--o{ COMMAND : "receives"
+    SEQUENCE ||--o{ COMMAND : "contains"
+    COMMAND ||--o{ COMMAND_LOG : "logs"
+    DEVICE ||--|| DEVICE_STATE : "has"
+```
+
+### 장비 에이전트 구조 (각 장비 PC에 설치)
+
+```mermaid
+graph TD
+    subgraph "장비 PC 에이전트"
+        HTTP[FastAPI 경량 서버\n:8080]
+        WS[WebSocket 클라이언트\n→ 중앙 백엔드]
+        HB[하트비트\n5초마다 상태 전송]
+        CMD[명령 핸들러]
+        DRV[드라이버 레이어]
+        SAFE[안전 검증\n한계값 체크]
+    end
+
+    HW[하드웨어\nModbus / RS-485 / USB]
+
+    HTTP --> CMD --> SAFE
+    SAFE -->|통과| DRV
+    SAFE -->|초과| ESTOP[E-STOP 실행]
+    DRV --> HW
+    HW -->|센서 데이터| DRV
+    DRV --> WS --> 중앙백엔드
+    HB --> 중앙백엔드
+```
+
+| 항목 | 방식 |
+|------|------|
+| 명령 전달 | 중앙 → 장비 REST POST |
+| 상태 수집 | 장비 → 중앙 WebSocket push |
+| 장애 전파 | 장비 에러 → 오케스트레이터 → 전체 라인 ESTOP |
+| 재시도 | 타임아웃 시 최대 3회, 이후 ERROR 전환 |
+| 감사 추적 | 모든 명령/응답 PostgreSQL 기록 |
+| 오프라인 감지 | 하트비트 30초 무응답 → OFFLINE, 해당 시퀀스 중단 |
+
+---
+
 ## 테스트
 
 ```bash
