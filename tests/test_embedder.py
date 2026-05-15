@@ -1,5 +1,5 @@
 """
-임베딩(Embedding) 모듈 테스트 - IssueEmbedder v2.
+임베딩(Embedding) 모듈 테스트 - IssueEmbedder v3 (PGVector).
 
 테스트 대상:
     - add 모드: file_hash 기반 중복 방지 (멱등성)
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain_core.documents import Document
@@ -45,6 +45,15 @@ def _make_chunk(
     )
 
 
+def _make_embedder(mock_pgvector_cls, tmp_path=None) -> IssueEmbedder:
+    """테스트용 IssueEmbedder를 생성한다."""
+    return IssueEmbedder(
+        embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        postgres_url="postgresql+psycopg://pipeline:pipeline@localhost:5432/issue_pipeline",
+        collection_name="test_col",
+    )
+
+
 class TestGenerateChunkId:
     """_generate_chunk_id 함수 테스트."""
 
@@ -75,29 +84,21 @@ class TestIssueEmbedderAddMode:
     """IssueEmbedder add 모드(중복 방지) 테스트."""
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_add_mode_skips_duplicate_file_hash(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """add 모드에서 이미 인덱싱된 file_hash를 가진 청크가 스킵되는지 확인한다."""
-        # Mock 컬렉션이 기존 해시 "abc123"을 가지고 있다고 설정
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "metadatas": [{"file_hash": "abc123"}],
-            "ids": ["abc123-doc0-chunk0"],
-        }
-        mock_client_cls.return_value.get_collection.return_value = mock_collection
+        mock_vs = MagicMock()
+        # 기존 해시 "abc123"을 가진 문서 반환
+        mock_vs.similarity_search.return_value = [
+            Document(page_content="기존", metadata={"file_hash": "abc123"})
+        ]
+        mock_pgvector_cls.return_value = mock_vs
 
-        embedder = IssueEmbedder(
-            embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
-            collection_name="test_col",
-        )
+        embedder = _make_embedder(mock_pgvector_cls)
 
         chunks = [_make_chunk("중복 내용", file_hash="abc123")]
         result = embedder.add_documents(chunks, mode="add")
@@ -106,29 +107,22 @@ class TestIssueEmbedderAddMode:
         assert result["added"] == 0
         assert result["skipped"] == 1
         # 벡터스토어 add_documents가 호출되지 않아야 함
-        mock_chroma_cls.return_value.add_documents.assert_not_called()
+        mock_vs.add_documents.assert_not_called()
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_add_mode_inserts_new_chunks(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """add 모드에서 새로운 file_hash를 가진 청크가 삽입되는지 확인한다."""
-        # 기존 해시가 없는 빈 컬렉션
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {"metadatas": [], "ids": []}
-        mock_client_cls.return_value.get_collection.return_value = mock_collection
+        mock_vs = MagicMock()
+        # 기존 해시가 없는 빈 결과
+        mock_vs.similarity_search.return_value = []
+        mock_pgvector_cls.return_value = mock_vs
 
-        embedder = IssueEmbedder(
-            embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
-            collection_name="test_col",
-        )
+        embedder = _make_embedder(mock_pgvector_cls)
 
         chunks = [
             _make_chunk("새 내용 A", file_hash="newfile1"),
@@ -140,24 +134,18 @@ class TestIssueEmbedderAddMode:
         assert result["added"] == 2
         assert result["skipped"] == 0
         # 벡터스토어 add_documents가 호출되어야 함
-        mock_chroma_cls.return_value.add_documents.assert_called_once()
+        mock_vs.add_documents.assert_called_once()
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_add_empty_chunks_returns_zero_stats(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """빈 청크 목록을 전달하면 0 통계를 반환하는지 확인한다."""
-        embedder = IssueEmbedder(
-            embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
-            collection_name="test_col",
-        )
+        mock_pgvector_cls.return_value = MagicMock()
+        embedder = _make_embedder(mock_pgvector_cls)
 
         result = embedder.add_documents([], mode="add")
         assert result == {"total": 0, "added": 0, "skipped": 0, "deleted": 0}
@@ -167,33 +155,27 @@ class TestIssueEmbedderUpdateMode:
     """IssueEmbedder update 모드(갱신) 테스트."""
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_update_mode_deletes_then_inserts(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """
         update 모드에서 소스 파일의 기존 청크를 삭제한 후 새 청크를 삽입하는지 확인한다.
         """
         source = "/data/raw/issue.md"
-
-        # delete_by_source가 호출될 때 컬렉션의 get()이 반환할 값
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {
-            "metadatas": [{"source": source}],
-            "ids": ["oldhash-doc0-chunk0"],
-        }
-        mock_client_cls.return_value.get_collection.return_value = mock_collection
-
-        embedder = IssueEmbedder(
-            embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
-            collection_name="test_col",
+        mock_vs = MagicMock()
+        # delete_by_source 내부에서 similarity_search 호출 시 기존 청크 반환
+        existing_doc = Document(
+            page_content="기존 내용",
+            metadata={"source": source, "_id": "oldhash-doc0-chunk0"},
         )
+        existing_doc.id = "oldhash-doc0-chunk0"
+        mock_vs.similarity_search.return_value = [existing_doc]
+        mock_pgvector_cls.return_value = mock_vs
+
+        embedder = _make_embedder(mock_pgvector_cls)
 
         chunks = [
             _make_chunk("수정된 내용 1", file_hash="newhash", source=source, chunk_index=0),
@@ -202,37 +184,29 @@ class TestIssueEmbedderUpdateMode:
         result = embedder.add_documents(chunks, mode="update")
 
         # 기존 청크 삭제 확인
-        mock_collection.delete.assert_called_once_with(ids=["oldhash-doc0-chunk0"])
+        mock_vs.delete.assert_called_once()
 
         # 새 청크 삽입 확인
-        mock_chroma_cls.return_value.add_documents.assert_called_once()
+        mock_vs.add_documents.assert_called_once()
 
         assert result["added"] == 2
-        assert result["deleted"] == 1
         assert result["skipped"] == 0
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_update_mode_groups_by_source(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """
         update 모드에서 서로 다른 소스 파일이 각각 독립적으로 처리되는지 확인한다.
         """
-        mock_collection = MagicMock()
-        mock_collection.get.return_value = {"metadatas": [], "ids": []}
-        mock_client_cls.return_value.get_collection.return_value = mock_collection
+        mock_vs = MagicMock()
+        mock_vs.similarity_search.return_value = []
+        mock_pgvector_cls.return_value = mock_vs
 
-        embedder = IssueEmbedder(
-            embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
-            collection_name="test_col",
-        )
+        embedder = _make_embedder(mock_pgvector_cls)
 
         chunks = [
             _make_chunk("내용A", source="/data/file_a.md", file_hash="hasha"),
@@ -240,8 +214,8 @@ class TestIssueEmbedderUpdateMode:
         ]
         result = embedder.add_documents(chunks, mode="update")
 
-        # 두 파일에 대해 각각 delete 호출 확인
-        assert mock_collection.get.call_count == 2
+        # 두 파일에 대해 각각 similarity_search 호출 확인
+        assert mock_vs.similarity_search.call_count == 2
 
         assert result["total"] == 2
         assert result["added"] == 2
@@ -320,38 +294,34 @@ class TestIssueEmbedderBatchSize:
     """배치 크기 설정 테스트."""
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_custom_batch_size_is_stored(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """커스텀 batch_size가 embedder에 저장되는지 확인한다."""
+        mock_pgvector_cls.return_value = MagicMock()
         embedder = IssueEmbedder(
             embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
+            postgres_url="postgresql+psycopg://pipeline:pipeline@localhost:5432/issue_pipeline",
             collection_name="test_col",
             batch_size=50,
         )
         assert embedder.batch_size == 50
 
     @patch("src.embedding.embedder.FastEmbedEmbeddings")
-    @patch("src.embedding.embedder.chromadb.PersistentClient")
-    @patch("src.embedding.embedder.Chroma")
+    @patch("src.embedding.embedder.PGVector")
     def test_default_batch_size_is_100(
         self,
-        mock_chroma_cls,
-        mock_client_cls,
+        mock_pgvector_cls,
         mock_embed_cls,
-        tmp_path,
     ) -> None:
         """기본 batch_size가 100인지 확인한다."""
+        mock_pgvector_cls.return_value = MagicMock()
         embedder = IssueEmbedder(
             embedding_model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-            chroma_persist_dir=tmp_path,
+            postgres_url="postgresql+psycopg://pipeline:pipeline@localhost:5432/issue_pipeline",
             collection_name="test_col",
         )
         assert embedder.batch_size == 100

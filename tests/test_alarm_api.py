@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch as _patch
 
 from src.api.main import app
 from src.api.dependencies import get_pipeline
@@ -51,8 +51,20 @@ def mock_pipeline():
 @pytest.fixture
 def client(mock_pipeline):
     app.dependency_overrides[get_pipeline] = lambda: mock_pipeline
-    with TestClient(app) as c:
-        yield c
+
+    mock_repo = MagicMock()
+    mock_repo.initialize = AsyncMock(return_value=None)
+    mock_repo.close = AsyncMock(return_value=None)
+    mock_repo._pool = MagicMock()
+    mock_missed_logger = MagicMock()
+
+    with (
+        _patch("src.api.main.IssuePipeline.from_settings", return_value=mock_pipeline),
+        _patch("src.api.main.ChatRepository", return_value=mock_repo),
+        _patch("src.api.main.MissedQueryLogger.create", new=AsyncMock(return_value=mock_missed_logger)),
+    ):
+        with TestClient(app) as c:
+            yield c
     app.dependency_overrides.clear()
 
 

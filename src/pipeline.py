@@ -23,6 +23,7 @@ from src.generation.generator import GenerationResult, IssueAnswerGenerator
 from src.ingestion.chunker import DocumentChunker
 from src.ingestion.document_loader import DocumentLoader
 from src.llm import AnthropicClient, ClaudeClient, LLMClient, OllamaClient
+from src.llm.base import ChatTurn
 from src.logger import get_logger, setup_logging
 from src.qa.elaboration import ElaborationResult, IssueElaborator
 from src.qa.feasibility import FeasibilityAssessor, FeasibilityResult
@@ -126,10 +127,10 @@ class IssuePipeline:
             chunk_overlap=cfg.chunk_overlap,
         )
 
-        # 3. 임베딩 및 ChromaDB 저장 (sentence-transformers/paraphrase-multilingual-mpnet-base-v2, 한국어 지원 다국어 모델)
+        # 3. 임베딩 및 pgvector 저장 (sentence-transformers/paraphrase-multilingual-mpnet-base-v2, 한국어 지원 다국어 모델)
         embedder = IssueEmbedder(
             embedding_model=cfg.embedding_model,
-            chroma_persist_dir=cfg.chroma_persist_dir,
+            postgres_url=cfg.postgres_sync_url,
             collection_name=cfg.chroma_collection_name,
             batch_size=cfg.embedding_batch_size,
         )
@@ -271,22 +272,38 @@ class IssuePipeline:
         self,
         question: str,
         top_k: int | None = None,
+        history: list[ChatTurn] | None = None,
     ):
         """
         질문을 RAG로 처리하고 텍스트 청크를 스트리밍한다.
 
-        Yields:
-            str: 텍스트 청크 (AsyncGenerator[str, None])
-            RetrievalResults: 검색 결과 (첫 번째 yield 전에 내부적으로 수행)
+        Args:
+            question: 사용자 질문
+            top_k: 검색 결과 수
+            history: 이전 대화 이력 (멀티턴 컨텍스트)
 
         Returns:
             tuple(AsyncGenerator[str, None], RetrievalResults)
         """
-        retrieval_results = self._retriever.search(question, top_k=top_k)
+        # Query Reformulation: 이전 user 질문을 현재 질문에 합쳐 검색 정확도 향상
+        # "그럼 해결 방법은?" 같은 follow-up 질문도 문서를 정확히 찾을 수 있도록 한다
+        search_query = question
+        if history:
+            prev_user_questions = [t["content"] for t in history if t["role"] == "user"][-2:]
+            if prev_user_questions:
+                search_query = " ".join(prev_user_questions) + " " + question
+
+        retrieval_results = self._retriever.search(search_query, top_k=top_k)
 
         async def _gen():
-            async for chunk in self._generator.generate_stream(question, retrieval_results):
-                yield chunk
+            if history:
+                async for chunk in self._generator.generate_stream_with_history(
+                    question, retrieval_results, history
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._generator.generate_stream(question, retrieval_results):
+                    yield chunk
 
         return _gen(), retrieval_results
 

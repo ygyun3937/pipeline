@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 
 from openai import AsyncOpenAI
 
+from src.llm.base import ChatTurn
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,6 +43,35 @@ class OllamaClient:
                 {"role": "user", "content": user_message},
             ],
             stream=True,
+        )
+        async for chunk in resp:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+    async def complete_with_history(
+        self,
+        system_prompt: str,
+        history: list[ChatTurn],
+        user_message: str,
+    ) -> str:
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend({"role": t["role"], "content": t["content"]} for t in history)
+        messages.append({"role": "user", "content": user_message})
+        resp = await self._openai.chat.completions.create(model=self._model, messages=messages)
+        return resp.choices[0].message.content or ""
+
+    async def stream_with_history(  # type: ignore[override]
+        self,
+        system_prompt: str,
+        history: list[ChatTurn],
+        user_message: str,
+    ) -> AsyncIterator[str]:
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend({"role": t["role"], "content": t["content"]} for t in history)
+        messages.append({"role": "user", "content": user_message})
+        resp = await self._openai.chat.completions.create(
+            model=self._model, messages=messages, stream=True
         )
         async for chunk in resp:
             delta = chunk.choices[0].delta.content

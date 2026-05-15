@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 import anthropic
 
+from src.llm.base import ChatTurn
 from src.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,6 +38,39 @@ class AnthropicClient:
             max_tokens=4096,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
+        ) as s:
+            async for text in s.text_stream:
+                yield text
+
+    async def complete_with_history(
+        self,
+        system_prompt: str,
+        history: list[ChatTurn],
+        user_message: str,
+    ) -> str:
+        messages = [{"role": t["role"], "content": t["content"]} for t in history]
+        messages.append({"role": "user", "content": user_message})
+        message = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+        )
+        return message.content[0].text
+
+    async def stream_with_history(  # type: ignore[override]
+        self,
+        system_prompt: str,
+        history: list[ChatTurn],
+        user_message: str,
+    ) -> AsyncIterator[str]:
+        messages = [{"role": t["role"], "content": t["content"]} for t in history]
+        messages.append({"role": "user", "content": user_message})
+        async with self._client.messages.stream(
+            model=self._model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
         ) as s:
             async for text in s.text_stream:
                 yield text

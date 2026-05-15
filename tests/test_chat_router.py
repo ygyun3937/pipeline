@@ -6,8 +6,9 @@ TestClient + dependency_overrides 패턴으로 실제 DB 없이 테스트한다.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch as _patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +17,26 @@ from src.api.dependencies import get_chat_repo, get_pipeline
 from src.api.main import app
 from src.chat.models import ChatMessage, ChatSession, FeedbackType, MessageRole
 from src.retrieval.retriever import RetrievalResults
+
+
+def _make_mock_missed_logger() -> AsyncMock:
+    """MissedQueryLogger async mock을 생성한다."""
+    m = AsyncMock()
+    m.log = AsyncMock(return_value={"id": "x", "question": "q", "session_id": None, "logged_at": "2024-01-01T00:00:00+00:00", "resolved": False})
+    m.list_all = AsyncMock(return_value=[])
+    m.mark_resolved = AsyncMock(return_value=True)
+    return m
+
+
+def _lifespan_patches(mock_pipeline, mock_repo, mock_missed_logger=None):
+    """lifespan의 실제 DB/파이프라인 초기화를 막는 컨텍스트 매니저."""
+    if mock_missed_logger is None:
+        mock_missed_logger = _make_mock_missed_logger()
+    return (
+        _patch("src.api.main.IssuePipeline.from_settings", return_value=mock_pipeline),
+        _patch("src.api.main.ChatRepository", return_value=mock_repo),
+        _patch("src.api.main.MissedQueryLogger.create", new=AsyncMock(return_value=mock_missed_logger)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +117,10 @@ def client_with_mocks():
     app.dependency_overrides[get_chat_repo] = lambda: mock_repo
     app.dependency_overrides[get_pipeline] = lambda: mock_pipeline
 
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c, mock_repo, mock_pipeline
+    p1, p2, p3 = _lifespan_patches(mock_pipeline, mock_repo)
+    with p1, p2, p3:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            yield c, mock_repo, mock_pipeline
 
     app.dependency_overrides.clear()
 
@@ -106,10 +129,13 @@ def client_with_mocks():
 def client_repo_only():
     """repo만 오버라이드한 클라이언트를 반환한다."""
     mock_repo = _make_mock_repo()
+    mock_pipeline = _make_mock_pipeline()
     app.dependency_overrides[get_chat_repo] = lambda: mock_repo
 
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c, mock_repo
+    p1, p2, p3 = _lifespan_patches(mock_pipeline, mock_repo)
+    with p1, p2, p3:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            yield c, mock_repo
 
     app.dependency_overrides.clear()
 
@@ -357,11 +383,14 @@ def client_feedback():
     mock_repo = _make_mock_repo()
     mock_repo.update_message_feedback = AsyncMock(return_value=True)
     mock_repo.get_messages = AsyncMock(return_value=[msg])
+    mock_pipeline = _make_mock_pipeline()
 
     app.dependency_overrides[get_chat_repo] = lambda: mock_repo
 
-    with TestClient(app, raise_server_exceptions=False) as c:
-        yield c, mock_repo
+    p1, p2, p3 = _lifespan_patches(mock_pipeline, mock_repo)
+    with p1, p2, p3:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            yield c, mock_repo
 
     app.dependency_overrides.clear()
 

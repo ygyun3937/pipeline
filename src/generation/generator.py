@@ -18,7 +18,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
-from src.llm.base import LLMClient
+from src.llm.base import ChatTurn, LLMClient
 from src.logger import get_logger
 from src.retrieval.retriever import RetrievalResults
 
@@ -286,3 +286,38 @@ class IssueAnswerGenerator:
             yield chunk
 
         logger.info("스트리밍 생성 완료")
+
+    async def generate_stream_with_history(
+        self,
+        question: str,
+        retrieval_results: RetrievalResults,
+        history: list[ChatTurn],
+    ) -> AsyncGenerator[str, None]:
+        """
+        이전 대화 이력을 포함하여 응답을 스트리밍한다.
+
+        Yields:
+            str: 텍스트 청크
+        """
+        if not question or not question.strip():
+            raise ValueError("질문이 비어 있습니다.")
+
+        question = question.strip()
+
+        if retrieval_results.is_empty:
+            user_message = NO_CONTEXT_QUERY_TEMPLATE.format(question=question)
+        else:
+            user_message = RAG_QUERY_TEMPLATE.format(
+                context=retrieval_results.get_context_text(), question=question
+            )
+
+        logger.info(
+            "멀티턴 스트리밍 생성 시작: question='%s' (이력 %d개)",
+            question[:100],
+            len(history),
+        )
+
+        async for chunk in self._llm.stream_with_history(SYSTEM_PROMPT, history, user_message):
+            yield chunk
+
+        logger.info("멀티턴 스트리밍 생성 완료")

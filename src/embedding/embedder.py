@@ -2,7 +2,7 @@
 임베딩(Embedding) 모듈.
 
 FastEmbed sentence-transformers/paraphrase-multilingual-mpnet-base-v2 다국어 모델을 사용하여 문서 청크를
-벡터로 변환하고 ChromaDB에 저장한다.
+벡터로 변환하고 PostgreSQL + pgvector에 저장한다.
 
 paraphrase-multilingual-mpnet-base-v2 선택 이유:
     - 한국어 포함 50개 이상 언어 지원
@@ -19,13 +19,11 @@ from __future__ import annotations
 
 import re
 import uuid
-from pathlib import Path
 from typing import Any, Literal
 
-import chromadb
-from langchain_chroma import Chroma
 from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_core.documents import Document
+from langchain_postgres.vectorstores import PGVector
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.logger import get_logger
@@ -38,7 +36,7 @@ IndexMode = Literal["add", "update"]
 
 class IssueEmbedder:
     """
-    이슈 문서 청크를 임베딩하여 ChromaDB에 저장하는 클래스.
+    이슈 문서 청크를 임베딩하여 PostgreSQL + pgvector에 저장하는 클래스.
 
     특징:
         - sentence-transformers/paraphrase-multilingual-mpnet-base-v2 다국어 ONNX 모델 (한국어 지원)
@@ -51,7 +49,7 @@ class IssueEmbedder:
     def __init__(
         self,
         embedding_model: str,
-        chroma_persist_dir: str | Path,
+        postgres_url: str,
         collection_name: str,
         batch_size: int = 100,
     ) -> None:
@@ -59,28 +57,23 @@ class IssueEmbedder:
         Args:
             embedding_model: FastEmbed 로컬 임베딩 모델명 (ONNX, API 키 불필요)
                              권장: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2" (한국어 지원 다국어 모델)
-            chroma_persist_dir: ChromaDB 데이터 저장 경로
-            collection_name: ChromaDB 컬렉션 이름
+            postgres_url: PostgreSQL 연결 URL (postgresql+psycopg:// 형식, langchain-postgres용)
+            collection_name: pgvector 컬렉션(테이블) 이름
             batch_size: 배치 처리 크기 (기본값: 100)
         """
         self.collection_name = collection_name
         self.batch_size = batch_size
-        persist_dir = Path(chroma_persist_dir)
-        persist_dir.mkdir(parents=True, exist_ok=True)
 
         # 로컬 ONNX 다국어 임베딩 초기화 (API 키/PyTorch 불필요)
         logger.info("로컬 임베딩 모델 로딩 중: %s", embedding_model)
         self._embeddings = FastEmbedEmbeddings(model_name=embedding_model)
 
-        # ChromaDB 클라이언트 초기화 (영구 저장)
-        self._chroma_client = chromadb.PersistentClient(path=str(persist_dir))
-
-        # LangChain Chroma 래퍼 초기화 (코사인 거리 명시 - FastEmbed 호환성)
-        self._vectorstore = Chroma(
-            client=self._chroma_client,
+        # LangChain PGVector 초기화
+        self._vectorstore = PGVector(
+            embeddings=self._embeddings,
             collection_name=collection_name,
-            embedding_function=self._embeddings,
-            collection_metadata={"hnsw:space": "cosine"},
+            connection=postgres_url,
+            use_jsonb=True,
         )
 
         logger.info(
@@ -96,7 +89,7 @@ class IssueEmbedder:
         mode: IndexMode = "add",
     ) -> dict[str, Any]:
         """
-        청크 목록을 임베딩하여 ChromaDB에 저장한다.
+        청크 목록을 임베딩하여 PostgreSQL + pgvector에 저장한다.
 
         Args:
             chunks: 저장할 Document 청크 목록
@@ -145,7 +138,7 @@ class IssueEmbedder:
             logger.info("모든 청크가 이미 인덱싱되어 있습니다.")
             return {"total": len(chunks), "added": 0, "skipped": skipped, "deleted": 0}
 
-        # 배치 처리로 ChromaDB에 저장
+        # 배치 처리로 pgvector에 저장
         added = self._add_chunks_in_batches(new_chunks)
 
         result = {"total": len(chunks), "added": added, "skipped": skipped, "deleted": 0}
@@ -192,7 +185,7 @@ class IssueEmbedder:
         return result
 
     def _add_chunks_in_batches(self, chunks: list[Document]) -> int:
-        """배치 단위로 청크를 ChromaDB에 저장한다. 각 배치별로 독립적으로 재시도한다."""
+        """배치 단위로 청크를 pgvector에 저장한다. 각 배치별로 독립적으로 재시도한다."""
         total_added = 0
 
         for i in range(0, len(chunks), self.batch_size):
@@ -219,7 +212,7 @@ class IssueEmbedder:
         reraise=True,
     )
     def _add_single_batch(self, batch: list[Document], ids: list[str]) -> None:
-        """단일 배치를 ChromaDB에 저장한다. 실패 시 최대 3회 재시도.
+        """단일 배치를 pgvector에 저장한다. 실패 시 최대 3회 재시도.
 
         배치 단위로 재시도를 적용함으로써, 중간에 실패해도 이미 성공한
         앞 배치들을 중복 삽입하지 않도록 한다.
@@ -227,12 +220,12 @@ class IssueEmbedder:
         self._vectorstore.add_documents(documents=batch, ids=ids)
 
     def _get_existing_file_hashes(self) -> set[str]:
-        """ChromaDB에 저장된 모든 file_hash 집합을 반환한다."""
+        """pgvector에 저장된 모든 file_hash 집합을 반환한다."""
         try:
-            collection = self._chroma_client.get_collection(self.collection_name)
-            result = collection.get(include=["metadatas"])
-            metadatas = result.get("metadatas") or []
-            return {m.get("file_hash", "") for m in metadatas if m}
+            # PGVector similarity_search로 전체 문서 메타데이터 조회
+            # get() 대신 pgvector 네이티브 방식으로 조회
+            results = self._vectorstore.similarity_search("", k=10000)
+            return {doc.metadata.get("file_hash", "") for doc in results if doc.metadata.get("file_hash")}
         except Exception as exc:
             logger.warning("기존 해시 조회 실패 (새 컬렉션으로 간주): %s", exc)
             return set()
@@ -250,15 +243,18 @@ class IssueEmbedder:
             삭제된 청크 수
         """
         try:
-            collection = self._chroma_client.get_collection(self.collection_name)
-            result = collection.get(
-                where={"source": source_path},
-                include=["metadatas"],
+            # filter로 소스 파일 청크 검색
+            results = self._vectorstore.similarity_search(
+                "", k=10000, filter={"source": source_path}
             )
-            ids_to_delete = result.get("ids", [])
+            ids_to_delete = [
+                doc.metadata.get("_id", doc.id)
+                for doc in results
+                if doc.metadata.get("_id") or hasattr(doc, "id")
+            ]
 
             if ids_to_delete:
-                collection.delete(ids=ids_to_delete)
+                self._vectorstore.delete(ids=ids_to_delete)
                 logger.info(
                     "소스 파일 청크 삭제: %s (%d개)", source_path, len(ids_to_delete)
                 )
@@ -269,21 +265,21 @@ class IssueEmbedder:
             return 0
 
     def get_collection_stats(self) -> dict[str, Any]:
-        """ChromaDB 컬렉션 통계를 반환한다."""
+        """pgvector 컬렉션 통계를 반환한다."""
         try:
-            collection = self._chroma_client.get_collection(self.collection_name)
-            count = collection.count()
+            # 전체 문서 수 조회
+            results = self._vectorstore.similarity_search("", k=10000)
             return {
                 "collection_name": self.collection_name,
-                "total_chunks": count,
+                "total_chunks": len(results),
             }
         except Exception as exc:
             logger.error("통계 조회 실패: %s", exc)
             return {"collection_name": self.collection_name, "total_chunks": 0}
 
     @property
-    def vectorstore(self) -> Chroma:
-        """LangChain Chroma 인스턴스를 반환한다. Retriever 생성에 사용."""
+    def vectorstore(self) -> PGVector:
+        """LangChain PGVector 인스턴스를 반환한다. Retriever 생성에 사용."""
         return self._vectorstore
 
 
@@ -309,7 +305,7 @@ def _detect_section(text: str) -> str:
 
 
 def _enrich_chunk_metadata(chunk: Document) -> Document:
-    """ChromaDB 저장 전 청크 메타데이터에 확장 필드를 주입한다."""
+    """pgvector 저장 전 청크 메타데이터에 확장 필드를 주입한다."""
     meta = dict(chunk.metadata)
     meta.setdefault("doc_id", meta.get("id", meta.get("filename", "")))
     meta.setdefault("domain", "unknown")

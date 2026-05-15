@@ -68,11 +68,26 @@ def mock_pipeline():
 @pytest.fixture
 def client(mock_pipeline):
     """테스트 클라이언트를 생성하고 파이프라인 의존성을 Mock으로 교체한다."""
+    from unittest.mock import AsyncMock, patch as _patch
+
     # FastAPI 의존성 오버라이드
     app.dependency_overrides[get_pipeline] = lambda: mock_pipeline
 
-    with TestClient(app) as test_client:
-        yield test_client
+    # lifespan이 실제 DB/파이프라인을 초기화하지 않도록 패치
+    mock_chat_repo = MagicMock()
+    mock_chat_repo.initialize = AsyncMock(return_value=None)
+    mock_chat_repo.close = AsyncMock(return_value=None)
+    mock_chat_repo._pool = MagicMock()
+
+    mock_missed_logger = MagicMock()
+
+    with (
+        _patch("src.api.main.IssuePipeline.from_settings", return_value=mock_pipeline),
+        _patch("src.api.main.ChatRepository", return_value=mock_chat_repo),
+        _patch("src.api.main.MissedQueryLogger.create", new=AsyncMock(return_value=mock_missed_logger)),
+    ):
+        with TestClient(app) as test_client:
+            yield test_client
 
     # 테스트 후 오버라이드 초기화
     app.dependency_overrides.clear()

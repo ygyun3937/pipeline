@@ -1,10 +1,72 @@
 # Issue Pipeline
 
 사내 버그·이슈 문서를 RAG(Retrieval-Augmented Generation)로 처리하는 지식 파이프라인.  
-버그 리포트, 장애 보고서, 배터리 도메인 이슈를 벡터 DB에 인덱싱하고 Claude AI가 자연어 답변을 생성한다.
+버그 리포트, 장애 보고서, 배터리 도메인 이슈를 벡터 DB에 인덱싱하고 AI가 자연어 답변을 생성한다.
 
 > **대외비** — 고객 데이터 및 이슈 문서는 외부 서비스에 업로드하지 않는다.  
-> 임베딩(FastEmbed ONNX)과 벡터 DB(ChromaDB)는 완전 로컬 실행이며, LLM은 사내 서버 PC에서 동작한다.
+> 임베딩(FastEmbed ONNX)과 벡터 DB(pgvector)는 완전 로컬 실행이며, LLM은 사내 서버 PC에서 동작한다.
+
+---
+
+## 구현 현황
+
+```mermaid
+mindmap
+  root((Issue Pipeline))
+    RAG 파이프라인
+      ✅ 문서 로딩
+        MD / TXT / PDF
+      ✅ 한국어 청킹
+        섹션 경계 기반
+      ✅ FastEmbed ONNX
+        로컬 임베딩
+      ✅ pgvector 저장
+        PostgreSQL 17
+      ✅ 코사인 유사도 검색
+      ✅ 메타데이터 필터
+        domain/severity/alarm_code
+    LLM 백엔드
+      ✅ Anthropic API
+        true streaming
+      ✅ Ollama 클라이언트
+        폐쇄망 준비 완료
+      ✅ Claude Agent SDK
+      ✅ 멀티턴 히스토리
+        complete_with_history
+        stream_with_history
+    챗봇
+      ✅ 세션 관리
+        PostgreSQL
+      ✅ SSE 스트리밍
+      ✅ 피드백 👍👎
+      ✅ Query Reformulation
+        이전 질문 합쳐 검색
+      ✅ 채팅 UI
+        Jinja2 + vanilla JS
+      ✅ 미답변 질문 추적
+        missed_queries 테이블
+    QA 파이프라인
+      ✅ Stage 1 이슈 구체화
+      ✅ Stage 2 테스트 가능성
+      ✅ Stage 3 MD 리포트
+      ⬜ 미답변 문서 힌트
+        LLM이 필요 문서 제안
+      ⬜ QA 리포트 UI
+        채팅 내 결과 표시
+    운영
+      ✅ 배터리 알람 수신
+      ✅ 이슈 등록 웹폼
+      ⬜ 문서 관리 UI
+        등록/수정/삭제
+      ⬜ 사용자 인증
+        부서별 접근 제어
+    배포
+      ⬜ Ollama 사내 서버 연결
+        Stage 3
+      ⬜ 전사 배포
+      ⬜ 외부 배포
+        Stage 4
+```
 
 ---
 
@@ -13,14 +75,14 @@
 ```mermaid
 flowchart LR
     S1["Stage 1\n데이터 구조 설계\n✅ 완료"]
-    S2["Stage 2\n챗봇 개발"]
+    S2["Stage 2\n챗봇 개발\n✅ 완료"]
     S3["Stage 3\n전사 배포"]
     S4["Stage 4\n외부 배포"]
 
     S1 --> S2 --> S3 --> S4
 
     style S1 fill:#dcfce7,stroke:#16a34a,stroke-width:2px
-    style S2 fill:#f8fafc,stroke:#94a3b8
+    style S2 fill:#dcfce7,stroke:#16a34a,stroke-width:2px
     style S3 fill:#f8fafc,stroke:#94a3b8
     style S4 fill:#f8fafc,stroke:#94a3b8
 ```
@@ -28,70 +90,9 @@ flowchart LR
 | 단계 | 목표 | LLM | 배포 환경 | 상태 |
 |------|------|-----|-----------|------|
 | Stage 1 | 데이터 구조 설계·정합화 | Claude Agent SDK (개발용) | 로컬 개발 PC | ✅ 완료 |
-| Stage 2 | 챗봇 개발 (세션·스트리밍·피드백) | Anthropic API | 로컬 개발 PC | ⏳ 예정 |
+| Stage 2 | 챗봇 개발 (세션·스트리밍·피드백·멀티턴) | Anthropic API | 로컬 개발 PC | ✅ 완료 |
 | Stage 3 | 전사 배포 | Ollama (사내 서버 PC) | 사내 서버 PC | ⏳ 예정 |
 | Stage 4 | 외부 배포 | Ollama (외부 서버 PC) | 외부 서버 PC | ⏳ 예정 |
-
----
-
-## Stage 1 진행 현황
-
-```mermaid
-flowchart TD
-    T1["✅ Task 1\nYAML 헤더 표준화\n기존 문서 마이그레이션"]
-    T2["✅ Task 2\nChromaDB 메타데이터\n스키마 확장"]
-    T3["✅ Task 3\nbattery validation\ncriteria.yaml"]
-    T4["✅ Task 4\n배터리 문서 30건\n확충"]
-    T5["✅ Task 5\n대화 세션 DB\n모델 설계"]
-    T6["✅ Task 6\n스트리밍 Generator\n리팩토링"]
-    T7["✅ Task 7\nAPI 인터페이스\n정합화"]
-    T8["✅ Task 8\n전체 테스트\n커버리지 확인"]
-
-    T1 --> T2 --> T5
-    T2 --> T6
-    T5 --> T7
-    T6 --> T7
-    T7 --> T8
-    T3 --> T8
-    T4 --> T8
-
-    style T1 fill:#dcfce7,stroke:#16a34a
-    style T2 fill:#dcfce7,stroke:#16a34a
-    style T3 fill:#dcfce7,stroke:#16a34a
-    style T4 fill:#dcfce7,stroke:#16a34a
-    style T5 fill:#dcfce7,stroke:#16a34a
-    style T6 fill:#dcfce7,stroke:#16a34a
-    style T7 fill:#dcfce7,stroke:#16a34a
-    style T8 fill:#dcfce7,stroke:#16a34a
-```
-
----
-
-## 데이터 수집 시스템 계획 (Option C)
-
-전 부서가 이슈 데이터를 쉽게 제출할 수 있는 데이터 수집 파이프라인.
-
-```mermaid
-flowchart LR
-    subgraph Phase1["Phase 1 — 웹 폼 (Stage 1 구현)"]
-        F1["부서 담당자\n브라우저 접속"]
-        F2["도메인 선택\n배터리 / 소프트웨어"]
-        F3["폼 작성\n증상·원인·조치"]
-        F4["자동 생성\nYAML+MD 파일"]
-        F5["자동 인덱싱\nChromaDB"]
-        F1 --> F2 --> F3 --> F4 --> F5
-    end
-
-    subgraph Phase2["Phase 2 — LLM 파싱 (Ollama 구성 후)"]
-        U1["기존 보고서 업로드\nWord / Excel / PDF"]
-        U2["LLM 자동 파싱\n표준 템플릿 변환"]
-        U3["담당자 검토\n수정 후 확인"]
-        U4["인덱싱\nChromaDB"]
-        U1 --> U2 --> U3 --> U4
-    end
-
-    Phase1 -.->|Ollama 구성 후 추가| Phase2
-```
 
 ---
 
@@ -100,116 +101,262 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph Client["클라이언트"]
-        REQ_RAG["RAG 질문\nPOST /api/v1/query"]
-        REQ_CHAT["대화 스트리밍\nPOST /chat/.../stream"]
+        UI["채팅 UI\n/chat"]
+        REQ_RAG["RAG API\nPOST /api/v1/query"]
         REQ_QA["QA 파이프라인\nPOST /api/v1/qa/*"]
         REQ_ALARM["배터리 알람\nPOST /api/v1/alarm/ingest"]
     end
 
     subgraph API["FastAPI (src/api/)"]
-        MAIN["main.py\n앱 진입점 + lifespan"]
-        ROUTER_QA["qa_router.py"]
         ROUTER_CHAT["chat_router.py\nSSE StreamingResponse"]
+        ROUTER_QA["qa_router.py"]
         ROUTER_ALARM["alarm_router.py"]
-        ROUTER_SUBMIT["submit_router.py\n웹 폼"]
-        DEPS["dependencies.py\n싱글턴 DI"]
+        ROUTER_SUBMIT["submit_router.py"]
+        ROUTER_MISSED["missed_queries_router.py"]
+        DEPS["dependencies.py\nSingleton DI"]
     end
 
     subgraph Pipeline["IssuePipeline (src/pipeline.py)"]
-        P_QUERY["query()\n일반 RAG 답변"]
-        P_STREAM["stream_query()\nSSE 스트리밍"]
-        P_QA["qa_elaborate()\nqa_assess_feasibility()\nqa_generate_report()"]
+        P_STREAM["stream_query(history)\nQuery Reformulation\n+ RAG 검색"]
+        P_QUERY["query()"]
+        P_QA["qa_elaborate/feasibility/report"]
+    end
+
+    subgraph RAG["RAG 파이프라인"]
+        direction LR
+        LOADER["DocumentLoader\nYAML 헤더 파싱"]
+        CHUNKER["DocumentChunker\n한국어 섹션 경계"]
+        EMB["FastEmbed\nONNX 로컬"]
+        PGV["pgvector\nsimilarity_search"]
+        GEN["IssueAnswerGenerator\ngenerate_stream_with_history"]
+        LOADER --> CHUNKER --> EMB --> PGV --> GEN
+    end
+
+    subgraph LLM["LLM 백엔드 (src/llm/)"]
+        BASE["LLMClient Protocol\ncomplete / stream\ncomplete_with_history\nstream_with_history"]
+        ANT["anthropic_client\nAnthropic API"]
+        OLL["ollama_client\nOllama 로컬"]
+        CLA["claude_client\nAgent SDK"]
+        BASE --> ANT & OLL & CLA
+    end
+
+    subgraph DB["PostgreSQL 17 + pgvector"]
+        PG_VEC[("langchain_pg_embedding\n벡터 저장소")]
+        PG_CHAT[("chat_sessions\nchat_messages")]
+        PG_MISS[("missed_queries")]
     end
 
     subgraph QA["QA 파이프라인 (src/qa/)"]
         QA1["elaboration.py\nStage 1: 이슈 구체화"]
         QA2["feasibility.py\nStage 2: 테스트 가능성"]
         QA3["report_generator.py\nStage 3: MD 리포트"]
-        YAML["validation_criteria_battery.yaml\n알람 13종 · 단계 6종 · 심각도 오버라이드"]
         QA1 --> QA2 --> QA3
-        YAML --> QA2
     end
 
-    subgraph RAG["RAG 파이프라인"]
-        subgraph Ingestion["1. Ingestion (src/ingestion/)"]
-            LOADER["DocumentLoader\nYAML 헤더 파싱"]
-            CHUNKER["DocumentChunker\n한국어 섹션 경계 청킹"]
-            LOADER --> CHUNKER
-        end
-        subgraph Embedding["2. Embedding (src/embedding/)"]
-            EMB["FastEmbed\nONNX 로컬, API 키 불필요"]
-            CHROMA["ChromaDB\n로컬 영구 저장"]
-            CHUNKER --> EMB --> CHROMA
-        end
-        subgraph Retrieval["3. Retrieval (src/retrieval/)"]
-            RET["IssueRetriever\n코사인 유사도 + 메타데이터 필터"]
-            CHROMA --> RET
-        end
-        subgraph Generation["4. Generation (src/generation/)"]
-            GEN["IssueAnswerGenerator\ngenerate() / generate_stream()"]
-            RET --> GEN
-        end
-    end
+    UI --> ROUTER_CHAT
+    REQ_RAG --> ROUTER_QA
+    REQ_QA --> ROUTER_QA
+    REQ_ALARM --> ROUTER_ALARM
 
-    subgraph LLM["LLM 백엔드 (src/llm/)"]
-        LLM_CLAUDE["claude_client.py\nClaude Agent SDK"]
-        LLM_ANT["anthropic_client.py\nAnthropic API (true streaming)"]
-        LLM_OLL["ollama_client.py\nOllama 로컬 LLM (true streaming)"]
-        LLM_BASE["LLMClient Protocol\ncomplete() + stream()"]
-        LLM_BASE --> LLM_CLAUDE
-        LLM_BASE --> LLM_ANT
-        LLM_BASE --> LLM_OLL
-    end
-
-    subgraph Chat["대화 세션 (src/chat/)"]
-        CHAT_MODEL["models.py\nChatSession / ChatMessage"]
-        CHAT_REPO["repository.py\nSQLite CRUD (aiosqlite)"]
-        CHAT_DB[("chat.db\nSQLite")]
-        CHAT_REPO --> CHAT_DB
-    end
-
-    REQ_RAG --> MAIN
-    REQ_CHAT --> MAIN
-    REQ_QA --> MAIN
-    REQ_ALARM --> MAIN
-
-    MAIN --> ROUTER_QA & ROUTER_CHAT & ROUTER_ALARM & ROUTER_SUBMIT
-    MAIN --> DEPS
-
-    ROUTER_QA --> P_QA
     ROUTER_CHAT --> P_STREAM
-    ROUTER_CHAT --> CHAT_REPO
-    ROUTER_ALARM --> P_QUERY
+    ROUTER_CHAT --> PG_CHAT
+    ROUTER_CHAT --> PG_MISS
+    ROUTER_QA --> P_QUERY & P_QA
+    ROUTER_MISSED --> PG_MISS
 
-    P_QUERY & P_STREAM --> RET
-    GEN --> LLM_BASE
+    P_STREAM --> PGV
+    P_QUERY --> PGV
+    GEN --> BASE
     P_QA --> QA1
-
-    QA1 & QA3 --> RET
+    QA1 & QA3 --> PGV
+    EMB --> PG_VEC
+    PGV --> PG_VEC
 ```
 
-### ChromaDB 메타데이터 스키마
+---
 
-| 필드 | 설명 | 예시 |
-|------|------|------|
-| `doc_id` | 이슈 문서 ID | `BATTERY-2024-001` |
-| `domain` | 도메인 | `battery` / `software` / `incident` |
-| `severity` | 심각도 | `critical` / `high` / `medium` / `low` |
-| `status` | 상태 | `resolved` / `ongoing` |
-| `alarm_code` | 배터리 알람 코드 | `OVP-001` / `OCP-001` |
-| `section` | 청크 섹션 | `증상` / `원인` / `조치` / `재발방지` |
-| `tags` | 태그 (쉼표 구분) | `overvoltage,cc-charge,sensor` |
-| `file_hash` | MD5 해시 (멱등성) | `abc123...` |
+## 채팅 SSE 스트리밍 흐름
 
-### LLM 백엔드 전환
+```mermaid
+sequenceDiagram
+    actor User as 사용자 (브라우저)
+    participant Chat as chat_router.py
+    participant Repo as ChatRepository
+    participant Miss as MissedQueryLogger
+    participant Pipe as IssuePipeline
+    participant PGV as pgvector
+    participant LLM as LLM 백엔드
 
-`LLM_BACKEND` 환경변수 하나로 전환. 나머지 코드 무변경.
+    User->>Chat: POST /sessions/{id}/stream\n{ question, top_k }
+    Chat->>Repo: get_recent_messages(limit=10)
+    Repo-->>Chat: list[ChatTurn] 이전 대화 이력
 
-| 값 | 백엔드 | 스트리밍 | 비고 |
-|----|--------|----------|------|
-| `claude` (기본) | Claude Agent SDK | pseudo | Claude Code 환경 필요 |
-| `anthropic` | Anthropic API | true | `ANTHROPIC_API_KEY` 필수 |
-| `ollama` | Ollama 로컬 LLM | true | Stage 3~4, 사내 서버 PC |
+    Chat->>Pipe: stream_query(question, history)
+    Note over Pipe: Query Reformulation\n이전 질문 + 현재 질문 합쳐 검색
+
+    Pipe->>PGV: similarity_search(reformulated_query)
+    PGV-->>Pipe: RetrievalResults
+
+    alt 검색 결과 없음
+        Pipe-->>Chat: 빈 RetrievalResults
+        Chat->>Miss: log(question, session_id)
+    end
+
+    Pipe->>LLM: stream_with_history(system, history, user_msg)
+    loop SSE 스트리밍
+        LLM-->>User: data: {"type":"text","text":"..."}
+    end
+
+    LLM-->>User: data: {"type":"done","message_id":"..."}
+
+    Chat->>Repo: add_message(USER, question)
+    Chat->>Repo: add_message(ASSISTANT, answer)
+```
+
+---
+
+## PostgreSQL 스키마
+
+```mermaid
+erDiagram
+    chat_sessions {
+        TEXT id PK
+        TEXT title
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+    chat_messages {
+        TEXT id PK
+        TEXT session_id FK
+        TEXT role
+        TEXT content
+        JSONB context_doc_ids
+        TEXT feedback
+        TIMESTAMPTZ created_at
+    }
+    missed_queries {
+        TEXT id PK
+        TEXT question
+        TEXT session_id
+        TIMESTAMPTZ logged_at
+        BOOLEAN resolved
+    }
+    langchain_pg_collection {
+        UUID uuid PK
+        TEXT name
+        JSONB cmetadata
+    }
+    langchain_pg_embedding {
+        UUID id PK
+        UUID collection_id FK
+        VECTOR embedding
+        TEXT document
+        JSONB cmetadata
+    }
+
+    chat_sessions ||--o{ chat_messages : "has"
+    langchain_pg_collection ||--o{ langchain_pg_embedding : "contains"
+```
+
+---
+
+## LLM 백엔드
+
+```mermaid
+flowchart LR
+    ENV["LLM_BACKEND\n환경변수"]
+
+    ENV -->|claude| CLA["ClaudeClient\nClaude Agent SDK\n개발 환경용"]
+    ENV -->|anthropic| ANT["AnthropicClient\nAnthropic API\nANTHROPIC_API_KEY 필요"]
+    ENV -->|ollama| OLL["OllamaClient\nOllama 로컬 LLM\nStage 3~4 사내 서버"]
+
+    subgraph Protocol["LLMClient Protocol"]
+        M1["complete(system, user) → str"]
+        M2["stream(system, user) → AsyncIterator"]
+        M3["complete_with_history(system, history, user) → str"]
+        M4["stream_with_history(system, history, user) → AsyncIterator"]
+    end
+
+    CLA & ANT & OLL --> Protocol
+```
+
+| 값 | 백엔드 | 멀티턴 | 스트리밍 | 비고 |
+|----|--------|--------|----------|------|
+| `claude` (기본) | Claude Agent SDK | 텍스트 직렬화 | pseudo | Claude Code 환경 필요 |
+| `anthropic` | Anthropic API | messages 배열 | true | `ANTHROPIC_API_KEY` 필수 |
+| `ollama` | Ollama 로컬 LLM | messages 배열 | true | Stage 3~4, 사내 서버 PC |
+
+---
+
+## QA 파이프라인 (3단계)
+
+```mermaid
+flowchart LR
+    IN["모호한 이슈 입력\n예: '배터리가 이상해요'"]
+
+    subgraph S1["Stage 1 — 구체화"]
+        E1["RAG 검색\n유사 이슈 수집"]
+        E2["LLM 분석\n증상·원인·심각도 추정"]
+        E1 --> E2
+    end
+
+    subgraph S2["Stage 2 — 테스트 가능성"]
+        F1["validation_criteria.yaml\n알람 13종·단계 6종"]
+        F2["LLM 판단\nfeasible / not_feasible\n/ needs_more_info"]
+        F1 --> F2
+    end
+
+    subgraph S3["Stage 3 — 리포트"]
+        R1["Markdown 리포트 생성\nQA_REPORT_*.md 저장"]
+    end
+
+    IN --> S1 --> S2 --> S3
+    S3 --> OUT["data/qa_reports/\nQA_REPORT_*.md"]
+```
+
+---
+
+## 미답변 질문 추적
+
+RAG 검색 결과가 없어 답변하지 못한 질문은 자동으로 `missed_queries` 테이블에 기록된다.  
+관리자가 어떤 문서를 추가해야 하는지 파악하는 데 사용한다.
+
+```mermaid
+flowchart LR
+    Q["사용자 질문"] --> RAG["RAG 검색"]
+    RAG -->|결과 있음| ANS["LLM 답변 생성"]
+    RAG -->|결과 없음| LOG["missed_queries 기록\n질문 + session_id + 시각"]
+    LOG --> NOTI["관리자 확인\nGET /api/v1/missed-queries"]
+    NOTI --> ADD["관련 문서 추가\ndata/raw/"]
+    ADD --> IDX["재인덱싱\nscripts/index_documents.py"]
+    IDX --> RESOLVE["해결 처리\nPATCH .../resolve"]
+```
+
+---
+
+## 데이터 수집 시스템 계획
+
+```mermaid
+flowchart LR
+    subgraph Phase1["Phase 1 — 웹 폼 (현재)"]
+        F1["부서 담당자\n브라우저 접속"]
+        F2["도메인 선택\n배터리 / 소프트웨어"]
+        F3["폼 작성\n증상·원인·조치"]
+        F4["자동 생성\nYAML+MD 파일"]
+        F5["자동 인덱싱\npgvector"]
+        F1 --> F2 --> F3 --> F4 --> F5
+    end
+
+    subgraph Phase2["Phase 2 — LLM 파싱 (Ollama 구성 후)"]
+        U1["기존 보고서 업로드\nWord / Excel / PDF"]
+        U2["LLM 자동 파싱\n표준 템플릿 변환"]
+        U3["담당자 검토\n수정 후 확인"]
+        U4["인덱싱\npgvector"]
+        U1 --> U2 --> U3 --> U4
+    end
+
+    Phase1 -.->|Ollama 구성 후 추가| Phase2
+```
 
 ---
 
@@ -221,8 +368,9 @@ flowchart TD
 | Framework | FastAPI, LangChain |
 | LLM | Claude Agent SDK / Anthropic API / Ollama |
 | 임베딩 | FastEmbed `paraphrase-multilingual-mpnet-base-v2` (로컬 ONNX) |
-| 벡터 DB | ChromaDB (로컬 영구 저장) |
-| 대화 세션 DB | SQLite + aiosqlite |
+| 벡터 DB | PostgreSQL 17 + pgvector 0.8.2 |
+| 채팅·세션 DB | PostgreSQL 17 (asyncpg) |
+| 미답변 추적 | PostgreSQL 17 (missed_queries 테이블) |
 | 패키지 매니저 | uv |
 
 ---
@@ -232,20 +380,21 @@ flowchart TD
 ```
 issue-pipeline/
 ├── src/
-│   ├── pipeline.py              # 오케스트레이터 (query / stream_query / qa_*)
-│   ├── config.py                # 환경변수 기반 설정
+│   ├── pipeline.py              # 오케스트레이터 (query / stream_query + history / qa_*)
+│   ├── config.py                # 환경변수 기반 설정 (postgres_url 포함)
 │   ├── logger.py                # 구조화 로깅
+│   ├── missed_queries.py        # 미답변 질문 PostgreSQL 추적기
 │   ├── ingestion/
 │   │   ├── document_loader.py   # YAML 헤더 파싱 + 문서 로딩
 │   │   └── chunker.py           # 한국어 섹션 경계 청킹
 │   ├── embedding/
-│   │   └── embedder.py          # FastEmbed + ChromaDB 저장 (MD5 멱등성)
+│   │   └── embedder.py          # FastEmbed + pgvector 저장 (MD5 멱등성)
 │   ├── retrieval/
 │   │   └── retriever.py         # 코사인 유사도 검색 + 메타데이터 필터
 │   ├── generation/
-│   │   └── generator.py         # RAG 답변 생성 (generate / generate_stream)
-│   ├── llm/                     # LLMClient Protocol
-│   │   ├── base.py              # complete() + stream() 인터페이스
+│   │   └── generator.py         # RAG 답변 (generate_stream / generate_stream_with_history)
+│   ├── llm/
+│   │   ├── base.py              # LLMClient Protocol (complete/stream/with_history)
 │   │   ├── claude_client.py     # Claude Agent SDK
 │   │   ├── anthropic_client.py  # Anthropic API (true streaming)
 │   │   └── ollama_client.py     # Ollama 로컬 LLM (true streaming)
@@ -253,55 +402,28 @@ issue-pipeline/
 │   │   ├── elaboration.py       # Stage 1: RAG 기반 이슈 구체화
 │   │   ├── feasibility.py       # Stage 2: 테스트 가능성 판단
 │   │   ├── report_generator.py  # Stage 3: Markdown 리포트 생성
-│   │   ├── validation_criteria.py  # YAML → ValidationCriteria 파싱
-│   │   ├── test_result_parser.py
-│   │   └── prompts.py
-│   ├── chat/                    # 대화 세션
-│   │   ├── models.py            # ChatSession / ChatMessage / MessageRole
-│   │   └── repository.py        # 비동기 SQLite CRUD (aiosqlite)
-│   └── api/                     # FastAPI
-│       ├── main.py              # 앱 진입점 + lifespan 초기화
-│       ├── dependencies.py      # 싱글턴 DI (get_pipeline / get_chat_repo)
-│       ├── models.py            # query/search 요청·응답 모델
-│       ├── qa_models.py         # QA 요청·응답 모델
+│   │   └── validation_criteria.py
+│   ├── chat/
+│   │   ├── models.py            # ChatSession / ChatMessage / FeedbackType
+│   │   └── repository.py        # 비동기 PostgreSQL CRUD (asyncpg)
+│   └── api/
+│       ├── main.py              # 앱 진입점 + lifespan (PostgreSQL 풀 관리)
+│       ├── dependencies.py      # Singleton DI
+│       ├── chat_router.py       # /api/v1/chat/* + SSE 스트리밍 + 피드백
+│       ├── missed_queries_router.py  # /api/v1/missed-queries
 │       ├── qa_router.py         # /api/v1/qa/*
-│       ├── alarm_models.py      # 배터리 알람 모델
 │       ├── alarm_router.py      # /api/v1/alarm/ingest
-│       ├── chat_models.py       # 채팅 요청·응답 모델
-│       ├── chat_router.py       # /api/v1/chat/sessions/* + SSE 스트리밍
-│       ├── submit_models.py     # 웹 폼 모델
-│       └── submit_router.py     # GET /submit
+│       ├── submit_router.py     # GET /submit (웹 폼)
+│       ├── static/
+│       │   └── chat.js          # 채팅 UI (SSE 파싱 + 피드백 버튼)
+│       └── templates/
+│           ├── base.html
+│           └── chat.html        # Jinja2 채팅 UI
 ├── data/
-│   ├── raw/                     # 이슈 문서 41건 (BATTERY-* / BUG-* / INCIDENT-*)
-│   ├── chroma_db/               # ChromaDB 벡터 저장소 (자동 생성)
-│   ├── chat.db                  # SQLite 대화 세션 DB (자동 생성)
-│   ├── qa_reports/              # QA 리포트 출력 (*.md)
-│   └── config/
-│       ├── validation_criteria.yaml          # 공통 QA 검증 기준
-│       └── validation_criteria_battery.yaml  # 배터리 도메인 전용 기준
-├── scripts/
-│   ├── index_documents.py       # 문서 인덱싱 CLI (--mode add|update)
-│   ├── start_server.py          # FastAPI 서버 시작
-│   └── query_cli.py             # 쿼리 테스트 CLI
-└── tests/                       # 290 passed / 84% coverage
-    ├── test_api.py
-    ├── test_alarm_api.py
-    ├── test_alarm_adapter.py
-    ├── test_chat_repository.py
-    ├── test_chat_router.py
-    ├── test_chunker_korean.py
-    ├── test_config.py
-    ├── test_embedder.py
-    ├── test_generator.py
-    ├── test_ingestion.py
-    ├── test_llm_clients.py
-    ├── test_pipeline_llm.py
-    ├── test_qa_api.py
-    ├── test_qa_elaboration.py
-    ├── test_qa_feasibility.py
-    ├── test_qa_report_generator.py
-    ├── test_retriever.py
-    └── test_test_result_parser.py
+│   ├── raw/                     # 이슈 문서 34건 (BATTERY-* / BUG-* / INCIDENT-*)
+│   └── qa_reports/              # QA 리포트 출력 (*.md)
+├── docker-compose.yml           # PostgreSQL + pgvector (포트 5434, 백업용)
+└── tests/                       # 335 passed
 ```
 
 ---
@@ -314,29 +436,36 @@ issue-pipeline/
 uv sync --extra dev
 ```
 
-### 2. 환경변수 설정
+### 2. PostgreSQL + pgvector 설치 (macOS)
+
+```bash
+brew install postgresql@17 pgvector
+brew services start postgresql@17
+
+# DB 및 유저 생성
+createdb -U $(whoami) issue_pipeline
+psql -U $(whoami) -d postgres -c "CREATE USER pipeline WITH PASSWORD 'pipeline';"
+psql -U $(whoami) -d issue_pipeline -c "GRANT ALL PRIVILEGES ON DATABASE issue_pipeline TO pipeline;"
+psql -U $(whoami) -d issue_pipeline -c "ALTER SCHEMA public OWNER TO pipeline;"
+psql -U $(whoami) -d issue_pipeline -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+### 3. 환경변수 설정
 
 ```bash
 cp .env.example .env
 ```
 
-LLM 백엔드 선택:
-
 ```bash
-# Claude Agent SDK (Claude Code 환경, 기본값)
-LLM_BACKEND=claude
-
-# Anthropic API (API 키 필요)
-LLM_BACKEND=anthropic
+# LLM 백엔드 선택
+LLM_BACKEND=anthropic          # claude | anthropic | ollama
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Ollama 로컬 LLM (Stage 3~4, 사내 서버 PC)
-LLM_BACKEND=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
+# PostgreSQL (기본값: localhost:5435)
+POSTGRES_URL=postgresql://pipeline:pipeline@localhost:5435/issue_pipeline
 ```
 
-### 3. 문서 인덱싱
+### 4. 문서 인덱싱
 
 ```bash
 # 신규 문서 추가
@@ -346,17 +475,12 @@ uv run python scripts/index_documents.py
 uv run python scripts/index_documents.py --mode update
 ```
 
-### 4. 서버 실행
+### 5. 서버 실행
 
 ```bash
-uv run python scripts/start_server.py --reload
-# → http://localhost:8000/docs
-```
-
-### 5. 쿼리 테스트
-
-```bash
-uv run python scripts/query_cli.py "DB 연결 풀 고갈 원인은?"
+uv run python scripts/start_server.py
+# 채팅 UI → http://localhost:8000/chat
+# API 문서 → http://localhost:8000/docs
 ```
 
 ---
@@ -366,6 +490,8 @@ uv run python scripts/query_cli.py "DB 연결 풀 고갈 원인은?"
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/health` | 서버 상태 확인 |
+| GET | `/chat` | 채팅 웹 UI |
+| GET | `/submit` | 이슈 등록 웹 폼 |
 | GET | `/api/v1/stats` | 인덱스 통계 |
 | POST | `/api/v1/query` | RAG 질문 답변 |
 | POST | `/api/v1/search` | 유사 문서 검색 (LLM 없음) |
@@ -380,8 +506,25 @@ uv run python scripts/query_cli.py "DB 연결 풀 고갈 원인은?"
 | GET  | `/api/v1/chat/sessions/{id}` | 세션 조회 |
 | DELETE | `/api/v1/chat/sessions/{id}` | 세션 삭제 |
 | GET  | `/api/v1/chat/sessions/{id}/messages` | 메시지 목록 |
-| POST | `/api/v1/chat/sessions/{id}/stream` | SSE 스트리밍 질문 |
-| GET  | `/submit` | 이슈 등록 웹 폼 |
+| POST | `/api/v1/chat/sessions/{id}/stream` | SSE 스트리밍 질문 (멀티턴) |
+| PATCH | `/api/v1/chat/sessions/{id}/messages/{msg_id}/feedback` | 피드백 (👍/👎) |
+| GET  | `/api/v1/missed-queries` | 미답변 질문 목록 |
+| PATCH | `/api/v1/missed-queries/{id}/resolve` | 미답변 항목 해결 처리 |
+
+---
+
+## 벡터 메타데이터 스키마
+
+| 필드 | 설명 | 예시 |
+|------|------|------|
+| `doc_id` | 이슈 문서 ID | `BATTERY-2024-001` |
+| `domain` | 도메인 | `battery` / `software` / `incident` |
+| `severity` | 심각도 | `critical` / `high` / `medium` / `low` |
+| `status` | 상태 | `resolved` / `ongoing` |
+| `alarm_code` | 배터리 알람 코드 | `OVP-001` |
+| `section` | 청크 섹션 | `증상` / `원인` / `조치` / `재발방지` |
+| `tags` | 태그 (쉼표 구분) | `overvoltage,cc-charge,sensor` |
+| `file_hash` | MD5 해시 (멱등성) | `abc123...` |
 
 ---
 
@@ -391,11 +534,11 @@ uv run python scripts/query_cli.py "DB 연결 풀 고갈 원인은?"
 
 ```yaml
 ---
-id: BATTERY-2024-001        # 또는 BUG-YYYY-NNN / INCIDENT-YYYY-NNN
+id: BATTERY-2024-001
 domain: battery             # battery | software | incident
 severity: critical          # critical | high | medium | low
 status: resolved            # resolved | ongoing | investigating
-alarm_code: OVP-001         # 배터리 알람 코드 (소프트웨어는 빈 문자열)
+alarm_code: OVP-001
 tags: [overvoltage, cc-charge]
 created_at: 2024-08-12
 resolved_at: 2024-08-13
@@ -416,4 +559,4 @@ uv run pytest tests/ -v
 uv run pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-현재 기준: **290 passed / 84% coverage** (18개 테스트 파일)
+현재 기준: **335 passed** (18개 테스트 파일)

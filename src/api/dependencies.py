@@ -4,11 +4,13 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from src.chat.repository import ChatRepository
+from src.missed_queries import MissedQueryLogger
 from src.pipeline import IssuePipeline
 
 # 파이프라인 싱글턴 (main.py의 lifespan에서 초기화)
 _pipeline: IssuePipeline | None = None
 _chat_repo: ChatRepository | None = None
+_missed_query_logger: MissedQueryLogger | None = None
 
 
 def set_pipeline(pipeline: IssuePipeline | None) -> None:
@@ -41,3 +43,18 @@ def get_chat_repo() -> ChatRepository:
             detail="채팅 저장소가 초기화되지 않았습니다. 서버를 재시작해주세요.",
         )
     return _chat_repo
+
+
+def set_missed_query_logger(logger: MissedQueryLogger | None) -> None:
+    global _missed_query_logger  # noqa: PLW0603
+    _missed_query_logger = logger
+
+
+def get_missed_query_logger() -> MissedQueryLogger:
+    """FastAPI 의존성 주입: MissedQueryLogger 인스턴스를 반환한다."""
+    if _missed_query_logger is None:
+        raise HTTPException(
+            status_code=503,
+            detail="미답변 질문 로거가 초기화되지 않았습니다.",
+        )
+    return _missed_query_logger

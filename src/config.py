@@ -62,14 +62,14 @@ class Settings(BaseSettings):
         default=100, description="임베딩 배치 처리 크기"
     )
 
-    # ---- ChromaDB 설정 ----
-    chroma_persist_dir: str = Field(
-        default="./data/chroma_db",
-        description="ChromaDB 영구 저장 경로",
+    # ---- PostgreSQL / pgvector 설정 ----
+    postgres_url: str = Field(
+        default="postgresql://pipeline:pipeline@localhost:5435/issue_pipeline",
+        description="PostgreSQL 연결 URL (asyncpg용)",
     )
     chroma_collection_name: str = Field(
         default="issue_documents",
-        description="ChromaDB 컬렉션 이름",
+        description="pgvector 컬렉션(테이블) 이름",
     )
 
     # ---- 청킹 설정 (한국어 문서 최적화) ----
@@ -123,19 +123,26 @@ class Settings(BaseSettings):
     )
 
     # ---- 대화 세션 설정 ----
-    chat_db_path: str = Field(
-        default="./data/chat.db",
-        description="대화 세션 SQLite DB 파일 경로",
-    )
     chat_session_max_messages: int = Field(
         default=50,
         description="세션당 최대 메시지 수 (초과 시 오래된 메시지 제거)",
     )
 
+    # ---- 미답변 질문 추적 ----
+    missed_queries_file: str = Field(
+        default="./data/missed_queries.json",
+        description="미답변 질문 저장 파일 경로",
+    )
+
     @property
-    def chroma_persist_path(self) -> Path:
-        """ChromaDB 절대 경로 반환."""
-        return Path(self.chroma_persist_dir).resolve()
+    def postgres_async_url(self) -> str:
+        """asyncpg용 URL (postgresql+asyncpg:// 형식)."""
+        return self.postgres_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+    @property
+    def postgres_sync_url(self) -> str:
+        """psycopg용 동기 URL (langchain-postgres용)."""
+        return self.postgres_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
     @property
     def raw_documents_path(self) -> Path:
@@ -156,6 +163,11 @@ class Settings(BaseSettings):
     def qa_validation_criteria_path_resolved(self) -> Path:
         """QA 검증 기준 파일 절대 경로 반환."""
         return Path(self.qa_validation_criteria_path).resolve()
+
+    @property
+    def missed_queries_path(self) -> Path:
+        """미답변 질문 파일 절대 경로 반환."""
+        return Path(self.missed_queries_file).resolve()
 
 
 def get_settings() -> Settings:

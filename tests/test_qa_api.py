@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch as _patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -108,8 +108,19 @@ def qa_client(qa_mock_pipeline: MagicMock) -> TestClient:
     """QA 테스트 클라이언트 픽스처."""
     app.dependency_overrides[get_pipeline] = lambda: qa_mock_pipeline
 
-    with TestClient(app) as client:
-        yield client
+    mock_repo = MagicMock()
+    mock_repo.initialize = AsyncMock(return_value=None)
+    mock_repo.close = AsyncMock(return_value=None)
+    mock_repo._pool = MagicMock()
+    mock_missed_logger = MagicMock()
+
+    with (
+        _patch("src.api.main.IssuePipeline.from_settings", return_value=qa_mock_pipeline),
+        _patch("src.api.main.ChatRepository", return_value=mock_repo),
+        _patch("src.api.main.MissedQueryLogger.create", new=AsyncMock(return_value=mock_missed_logger)),
+    ):
+        with TestClient(app) as client:
+            yield client
 
     app.dependency_overrides.clear()
 

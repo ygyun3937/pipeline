@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_core.vectorstores import VectorStore
 
 from src.logger import get_logger
 
@@ -107,13 +107,13 @@ class IssueRetriever:
 
     def __init__(
         self,
-        vectorstore: Chroma,
+        vectorstore: VectorStore,
         top_k: int = 5,
         score_threshold: float = 0.3,
     ) -> None:
         """
         Args:
-            vectorstore: LangChain Chroma 인스턴스
+            vectorstore: LangChain VectorStore 인스턴스 (PGVector 등)
             top_k: 반환할 최대 결과 수
             score_threshold: 최소 유사도 점수 (0.0 ~ 1.0)
                              이 값 미만의 결과는 필터링된다.
@@ -208,10 +208,9 @@ class IssueRetriever:
         LangChain Expression Language(LCEL) 체인 구성에 사용한다.
         """
         return self._vectorstore.as_retriever(
-            search_type="similarity_score_threshold",
+            search_type="similarity",
             search_kwargs={
                 "k": self.top_k,
-                "score_threshold": self.score_threshold,
                 **kwargs,
             },
         )

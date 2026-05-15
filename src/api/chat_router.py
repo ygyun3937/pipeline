@@ -29,9 +29,11 @@ from src.api.chat_models import (
     MessageResponse,
     SessionResponse,
 )
-from src.api.dependencies import get_chat_repo, get_pipeline
+from src.api.dependencies import get_chat_repo, get_pipeline, get_missed_query_logger
 from src.chat.models import MessageRole
 from src.chat.repository import ChatRepository
+from src.llm.base import ChatTurn
+from src.missed_queries import MissedQueryLogger
 from src.logger import get_logger
 from src.pipeline import IssuePipeline
 
@@ -131,6 +133,7 @@ async def stream_chat(
     body: ChatStreamRequest,
     repo: ChatRepository = Depends(get_chat_repo),
     pipeline: IssuePipeline = Depends(get_pipeline),
+    missed_logger: MissedQueryLogger = Depends(get_missed_query_logger),
 ) -> StreamingResponse:
     """
     사용자 질문을 RAG로 처리하고 SSE 스트림으로 응답한다.
@@ -145,7 +148,7 @@ async def stream_chat(
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
     return StreamingResponse(
-        _stream_generator(session_id, body, repo, pipeline),
+        _stream_generator(session_id, body, repo, pipeline, missed_logger),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -159,6 +162,7 @@ async def _stream_generator(
     body: ChatStreamRequest,
     repo: ChatRepository,
     pipeline: IssuePipeline,
+    missed_logger: MissedQueryLogger,
 ) -> AsyncGenerator[str, None]:
     """SSE 이벤트를 생성하는 내부 async generator."""
     question = body.question.strip()
@@ -166,22 +170,33 @@ async def _stream_generator(
     context_doc_ids: list[str] = []
 
     try:
-        # 1. RAG 검색 + 스트리밍 생성기 획득
+        # 1. 최근 대화 이력 조회 (멀티턴 컨텍스트, 현재 질문 제외)
+        recent_msgs = await repo.get_recent_messages(session_id, limit=10)
+        history: list[ChatTurn] = [
+            {"role": m.role.value, "content": m.content} for m in recent_msgs
+        ]
+
+        # 2. RAG 검색 + 스트리밍 생성기 획득
         stream_gen, retrieval_results = await pipeline.stream_query(
-            question=question, top_k=body.top_k
+            question=question, top_k=body.top_k, history=history or None
         )
+
+        # 검색 결과 없으면 미답변 질문으로 기록
+        if retrieval_results.is_empty:
+            await missed_logger.log(question=question, session_id=session_id)
+
         context_doc_ids = [
             r.document.metadata.get("doc_id", "")
             for r in retrieval_results.results
             if r.document.metadata.get("doc_id")
         ]
 
-        # 2. 스트리밍
+        # 3. 스트리밍
         async for chunk in stream_gen:
             full_answer += chunk
             yield _sse({"type": "text", "text": chunk})
 
-        # 3. 메시지 저장 (user → assistant)
+        # 4. 메시지 저장 (user → assistant)
         await repo.add_message(session_id, MessageRole.USER, question)
         asst_msg = await repo.add_message(
             session_id,
@@ -190,7 +205,7 @@ async def _stream_generator(
             context_doc_ids=context_doc_ids,
         )
 
-        # 4. 세션 제목 자동 설정 (첫 메시지인 경우)
+        # 5. 세션 제목 자동 설정 (첫 메시지인 경우)
         session = await repo.get_session(session_id)
         if session and session.title == "새 대화":
             title = question[:50] + ("..." if len(question) > 50 else "")
