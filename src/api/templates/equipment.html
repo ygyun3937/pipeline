@@ -866,7 +866,7 @@ main {
       const total = seq.total_steps || 1;
       const pct = total > 0 ? Math.round((seq.current_step_index / total) * 100) : 0;
       const s = seq.status;
-      const canRun = (s === 'pending' || s === 'error' || s === 'cancelled');
+      const canRun = (s === 'pending' || s === 'done' || s === 'error' || s === 'cancelled');
 
       const createdAt = new Date(seq.created_at).toLocaleString('ko-KR', {
         month: 'numeric', day: 'numeric',
