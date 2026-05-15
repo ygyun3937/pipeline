@@ -154,6 +154,11 @@ _templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 async def chat_page(request: Request) -> HTMLResponse:
     return _templates.TemplateResponse("chat.html", {"request": request})
 
+
+@app.get("/equipment", response_class=HTMLResponse, include_in_schema=False)
+async def equipment_page(request: Request) -> HTMLResponse:
+    return _templates.TemplateResponse("equipment.html", {"request": request})
+
 # 라우터 등록
 app.include_router(qa_router)
 app.include_router(alarm_router)

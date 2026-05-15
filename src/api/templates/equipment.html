@@ -1,0 +1,1127 @@
+{% extends "base.html" %}
+{% block title %}장비 제어 대시보드 — Issue Pipeline{% endblock %}
+
+{% block extra_style %}
+/* ── 레이아웃 재정의: 대시보드는 full-viewport ── */
+main {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  height: calc(100vh - 52px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 상단 헤더 바 ── */
+.dash-topbar {
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  padding: 0 1.5rem;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+.dash-title {
+  color: #f1f5f9;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+}
+.dash-clock {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.8125rem;
+  color: #64748b;
+  letter-spacing: 0.04em;
+}
+.poll-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+.poll-indicator.stale { background: #ef4444; }
+
+/* ── E-STOP 버튼 ── */
+.btn-estop {
+  padding: 8px 20px;
+  background: #dc2626;
+  color: #fff;
+  border: 2px solid #fca5a5;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s, transform .1s;
+  text-transform: uppercase;
+}
+.btn-estop:hover { background: #b91c1c; transform: scale(1.03); }
+.btn-estop:active { background: #991b1b; transform: scale(0.98); }
+
+/* ── 메인 2-컬럼 그리드 ── */
+.dash-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+}
+
+/* ── 왼쪽: 장비 패널 ── */
+.panel-devices {
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── 오른쪽: 시퀀스 패널 ── */
+.panel-sequences {
+  grid-column: 2;
+  grid-row: 1;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── 하단: 이벤트 로그 ── */
+.panel-log {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 140px;
+  border-top: 1px solid #e2e8f0;
+  background: #0f172a;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+/* ── 패널 헤더 ── */
+.panel-header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.panel-header-dark {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  background: #0f172a;
+}
+.panel-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.panel-label-dark {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #475569;
+}
+.panel-count {
+  font-size: 0.75rem;
+  background: #e2e8f0;
+  color: #64748b;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+/* ── 패널 스크롤 영역 ── */
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+/* ── 장비 카드 ── */
+.device-card {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 0.5rem;
+  transition: border-color .15s;
+  cursor: default;
+}
+.device-card:hover { border-color: #cbd5e1; }
+.device-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.device-id {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #0f172a;
+  flex: 1;
+}
+.device-type-badge {
+  font-size: 0.6875rem;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* ── 상태 배지 ── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.status-idle    { color: #64748b; background: #f1f5f9; }
+.status-ready   { color: #1d4ed8; background: #dbeafe; }
+.status-running { color: #15803d; background: #dcfce7; }
+.status-paused  { color: #92400e; background: #fef3c7; }
+.status-done    { color: #0e7490; background: #cffafe; }
+.status-error   { color: #b91c1c; background: #fee2e2; }
+.status-estop   { color: #991b1b; background: #fecaca; border: 1px solid #fca5a5; }
+.status-offline { color: #475569; background: #e2e8f0; }
+.status-pending   { color: #6d28d9; background: #ede9fe; }
+.status-cancelled { color: #71717a; background: #f4f4f5; }
+
+/* 깜빡임 — running 장비 카드 */
+@keyframes pulse-running {
+  0%, 100% { border-color: #86efac; }
+  50%       { border-color: #22c55e; }
+}
+.device-card.running { animation: pulse-running 1.8s ease-in-out infinite; }
+.device-card.estop   { border-color: #fca5a5; border-width: 2px; }
+.device-card.error   { border-color: #fca5a5; }
+
+/* ── 센서 그리드 ── */
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem 0.5rem;
+  margin-top: 0.375rem;
+}
+.sensor-item {}
+.sensor-label {
+  font-size: 0.625rem;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  display: block;
+}
+.sensor-value {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+.sensor-value.dim { color: #cbd5e1; }
+
+/* ── 빈 상태 ── */
+.empty-notice {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  padding: 2rem 1rem;
+}
+.empty-notice .notice-icon { font-size: 1.5rem; display: block; margin-bottom: 0.375rem; }
+
+/* ── 추가 버튼 (패널 하단) ── */
+.btn-add {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  background: none;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 7px;
+  color: #64748b;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: calc(100% - 1.5rem);
+  margin: 0 0.75rem 0.75rem;
+  transition: border-color .15s, color .15s;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.btn-add:hover { border-color: #6366f1; color: #4f46e5; }
+
+/* ── 시퀀스 카드 ── */
+.seq-card {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+  margin-bottom: 0.5rem;
+  background: #fff;
+  transition: border-color .15s;
+}
+.seq-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.seq-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seq-meta {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+.progress-track {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .4s ease;
+  background: #22c55e;
+}
+.progress-fill.status-pending   { background: #8b5cf6; }
+.progress-fill.status-running   { background: #22c55e; }
+.progress-fill.status-done      { background: #06b6d4; }
+.progress-fill.status-error     { background: #ef4444; }
+.progress-fill.status-cancelled { background: #94a3b8; }
+
+.seq-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.btn-exec {
+  padding: 4px 14px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s;
+}
+.btn-exec:hover { background: #4338ca; }
+.btn-exec:disabled { background: #c7d2fe; cursor: not-allowed; }
+
+/* ── 이벤트 로그 ── */
+.log-entries {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.375rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.log-entry {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.log-ts {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  color: #475569;
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+}
+.log-icon { flex-shrink: 0; width: 14px; text-align: center; }
+.log-msg { color: #94a3b8; }
+.log-msg.ok   { color: #4ade80; }
+.log-msg.err  { color: #f87171; }
+.log-msg.warn { color: #fbbf24; }
+.log-msg.info { color: #7dd3fc; }
+
+/* ── 모달 오버레이 ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-overlay.hidden { display: none !important; }
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 480px;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,.25);
+}
+.modal-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 1.25rem;
+}
+.modal-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f1f5f9;
+}
+.btn-cancel {
+  padding: 0.5rem 1rem;
+  background: #f1f5f9;
+  color: #64748b;
+  border: none;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s;
+}
+.btn-cancel:hover { background: #e2e8f0; }
+.btn-primary {
+  padding: 0.5rem 1.25rem;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s;
+}
+.btn-primary:hover { background: #4338ca; }
+
+/* ── 스텝 빌더 ── */
+.step-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+.step-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 80px 28px;
+  gap: 0.375rem;
+  align-items: center;
+}
+.step-row input, .step-row select {
+  padding: 0.375rem 0.5rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+}
+.step-row input:focus, .step-row select:focus { border-color: #6366f1; }
+.btn-remove-step {
+  width: 28px;
+  height: 28px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: inherit;
+}
+.btn-remove-step:hover { background: #fecaca; }
+.btn-add-step {
+  padding: 0.375rem 0.75rem;
+  background: none;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .12s, color .12s;
+  width: 100%;
+}
+.btn-add-step:hover { border-color: #6366f1; color: #4f46e5; }
+
+.form-field { margin-bottom: 0.875rem; }
+.form-field label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.3rem;
+  letter-spacing: 0.01em;
+}
+.form-field input, .form-field select {
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+  font-family: inherit;
+  transition: border-color .15s;
+}
+.form-field input:focus, .form-field select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+}
+.row-2-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.form-sep {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin: 1rem 0 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 0.375rem;
+}
+.step-header-labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 80px 28px;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
+}
+.step-header-labels span {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: #475569;
+  font-weight: 500;
+  cursor: pointer;
+}
+.checkbox-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+
+/* ── toast 알림 ── */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 2000;
+  pointer-events: none;
+}
+.toast {
+  padding: 0.625rem 1rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0,0,0,.2);
+  animation: toast-in .2s ease;
+  pointer-events: auto;
+}
+.toast.success { background: #15803d; }
+.toast.error   { background: #b91c1c; }
+.toast.info    { background: #1d4ed8; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+{% endblock %}
+
+{% block content %}
+
+<!-- 상단 대시보드 바 -->
+<div class="dash-topbar">
+  <span class="dash-title">장비 제어 대시보드</span>
+  <span class="dash-clock" id="dashClock"></span>
+  <span class="poll-indicator" id="pollDot" title="폴링 상태"></span>
+  <button class="btn-estop" id="estopBtn">E-STOP</button>
+</div>
+
+<!-- 메인 그리드 -->
+<div class="dash-body">
+
+  <!-- 왼쪽: 장비 현황 -->
+  <div class="panel-devices">
+    <div class="panel-header">
+      <span class="panel-label">장비 현황</span>
+      <span class="panel-count" id="deviceCount">0</span>
+    </div>
+    <div class="panel-scroll" id="deviceList">
+      <div class="empty-notice" id="deviceEmpty">
+        <span class="notice-icon">🔌</span>
+        등록된 장비가 없습니다
+      </div>
+    </div>
+    <button class="btn-add" id="btnAddDevice">
+      <span>+</span> 장비 등록
+    </button>
+  </div>
+
+  <!-- 오른쪽: 시퀀스 -->
+  <div class="panel-sequences">
+    <div class="panel-header">
+      <span class="panel-label">시퀀스 실행</span>
+      <span class="panel-count" id="seqCount">0</span>
+    </div>
+    <div class="panel-scroll" id="seqList">
+      <div class="empty-notice" id="seqEmpty">
+        <span class="notice-icon">📋</span>
+        생성된 시퀀스가 없습니다
+      </div>
+    </div>
+    <button class="btn-add" id="btnAddSeq">
+      <span>+</span> 새 시퀀스
+    </button>
+  </div>
+
+  <!-- 하단: 이벤트 로그 -->
+  <div class="panel-log">
+    <div class="panel-header-dark">
+      <span class="panel-label-dark">이벤트 로그</span>
+    </div>
+    <div class="log-entries" id="logEntries">
+      <div class="log-entry">
+        <span class="log-ts">--:--:--</span>
+        <span class="log-icon">·</span>
+        <span class="log-msg">대기 중...</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 장비 등록 모달 -->
+<div class="modal-overlay hidden" id="modalDevice">
+  <div class="modal-box">
+    <div class="modal-title">장비 등록</div>
+    <div class="row-2-fields">
+      <div class="form-field">
+        <label>장비 ID <span style="color:#ef4444">*</span></label>
+        <input type="text" id="dId" placeholder="CHG-A-01">
+      </div>
+      <div class="form-field">
+        <label>장비 이름 <span style="color:#ef4444">*</span></label>
+        <input type="text" id="dName" placeholder="충전기 A-1호">
+      </div>
+    </div>
+    <div class="row-2-fields">
+      <div class="form-field">
+        <label>IP 주소 <span style="color:#ef4444">*</span></label>
+        <input type="text" id="dIp" placeholder="192.168.1.100">
+      </div>
+      <div class="form-field">
+        <label>포트</label>
+        <input type="text" id="dPort" placeholder="8080" value="8080">
+      </div>
+    </div>
+    <div class="form-field">
+      <label>장비 유형 <span style="color:#ef4444">*</span></label>
+      <select id="dType">
+        <option value="charger">charger</option>
+        <option value="chamber">chamber</option>
+        <option value="tester">tester</option>
+        <option value="other">other</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" id="modalDeviceCancel">취소</button>
+      <button class="btn-primary" id="modalDeviceSubmit">등록</button>
+    </div>
+  </div>
+</div>
+
+<!-- 시퀀스 생성 모달 -->
+<div class="modal-overlay hidden" id="modalSeq">
+  <div class="modal-box">
+    <div class="modal-title">새 시퀀스 생성</div>
+    <div class="form-field">
+      <label>시퀀스 이름 <span style="color:#ef4444">*</span></label>
+      <input type="text" id="sName" placeholder="충전 테스트 시퀀스">
+    </div>
+
+    <div class="form-sep">스텝 정의</div>
+    <div class="step-header-labels">
+      <span>장치 ID</span>
+      <span>명령 유형</span>
+      <span>타임아웃(초)</span>
+      <span></span>
+    </div>
+    <div class="step-list" id="stepList"></div>
+    <button class="btn-add-step" id="btnAddStep">+ 스텝 추가</button>
+
+    <label class="checkbox-row">
+      <input type="checkbox" id="seqAutoRun" checked>
+      생성 후 바로 실행
+    </label>
+
+    <div class="modal-footer">
+      <button class="btn-cancel" id="modalSeqCancel">취소</button>
+      <button class="btn-primary" id="modalSeqSubmit">생성</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 컨테이너 -->
+<div class="toast-container" id="toastContainer"></div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+
+  // ── 상태 ─────────────────────────────────────────────────────────────────
+  const state = {
+    devices: [],           // DeviceResponse[]
+    deviceStates: {},      // {device_id: DeviceState}
+    sequences: [],         // SequenceResponse[]
+    prevSeqStatuses: {},   // {id: status} — 변화 감지용
+    logEntries: [],        // {ts, cls, icon, msg}[]
+    pollOk: true,
+  };
+
+  // ── 유틸 ─────────────────────────────────────────────────────────────────
+  function fmtTime(date) {
+    return date.toLocaleTimeString('ko-KR', { hour12: false });
+  }
+
+  function fmtNum(val, unit, digits = 1) {
+    if (val == null) return '<span class="sensor-value dim">—</span>';
+    return `<span class="sensor-value">${Number(val).toFixed(digits)}<span style="font-size:.65em;color:#94a3b8;margin-left:1px">${unit}</span></span>`;
+  }
+
+  function statusLabel(status) {
+    const map = {
+      idle: '대기', ready: '준비', running: '실행 중', paused: '일시정지',
+      done: '완료', error: '오류', estop: 'E-STOP', offline: '오프라인',
+      pending: '대기', cancelled: '취소됨',
+    };
+    return map[status] || status;
+  }
+
+  function toast(msg, type = 'info') {
+    const c = document.getElementById('toastContainer');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
+  // ── 시계 ─────────────────────────────────────────────────────────────────
+  function tickClock() {
+    document.getElementById('dashClock').textContent = fmtTime(new Date());
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  // ── 로그 ─────────────────────────────────────────────────────────────────
+  function addLog(msg, cls = '', icon = '·') {
+    state.logEntries.unshift({ ts: fmtTime(new Date()), cls, icon, msg });
+    if (state.logEntries.length > 20) state.logEntries.length = 20;
+    renderLog();
+  }
+
+  function renderLog() {
+    const el = document.getElementById('logEntries');
+    if (state.logEntries.length === 0) return;
+    el.innerHTML = state.logEntries.map(e =>
+      `<div class="log-entry">
+        <span class="log-ts">${e.ts}</span>
+        <span class="log-icon">${e.icon}</span>
+        <span class="log-msg ${e.cls}">${e.msg}</span>
+      </div>`
+    ).join('');
+  }
+
+  // ── 렌더: 장비 카드 ────────────────────────────────────────────────────
+  function renderDevices() {
+    const list = document.getElementById('deviceList');
+    const empty = document.getElementById('deviceEmpty');
+    document.getElementById('deviceCount').textContent = state.devices.length;
+
+    if (state.devices.length === 0) {
+      empty.style.display = '';
+      // clear all cards except empty notice
+      [...list.querySelectorAll('.device-card')].forEach(n => n.remove());
+      return;
+    }
+    empty.style.display = 'none';
+
+    // keyed update — preserve existing nodes when possible
+    const existing = {};
+    list.querySelectorAll('.device-card').forEach(n => { existing[n.dataset.id] = n; });
+
+    state.devices.forEach(dev => {
+      const ds = state.deviceStates[dev.id] || {};
+      const s = dev.status;
+      const cardClass = `device-card ${['running','estop','error'].includes(s) ? s : ''}`;
+
+      const hb = dev.last_heartbeat
+        ? new Date(dev.last_heartbeat).toLocaleTimeString('ko-KR', { hour12: false })
+        : '—';
+
+      const html = `
+        <div class="device-card-header">
+          <span class="device-id">${dev.id}</span>
+          <span class="device-type-badge">${dev.device_type}</span>
+          <span class="status-badge status-${s}">${statusLabel(s)}</span>
+        </div>
+        <div class="sensor-grid">
+          <div class="sensor-item"><span class="sensor-label">전압</span>${fmtNum(ds.voltage, 'V')}</div>
+          <div class="sensor-item"><span class="sensor-label">온도</span>${fmtNum(ds.temperature, '°C')}</div>
+          <div class="sensor-item"><span class="sensor-label">전류</span>${fmtNum(ds.current, 'A')}</div>
+        </div>
+        <div style="font-size:.65rem;color:#94a3b8;margin-top:.375rem;">
+          ${dev.name} &nbsp;·&nbsp; ${dev.ip_address}:${dev.port} &nbsp;·&nbsp; 최근응답: ${hb}
+        </div>`;
+
+      if (existing[dev.id]) {
+        existing[dev.id].className = cardClass;
+        existing[dev.id].innerHTML = html;
+        delete existing[dev.id];
+      } else {
+        const node = document.createElement('div');
+        node.className = cardClass;
+        node.dataset.id = dev.id;
+        node.innerHTML = html;
+        list.insertBefore(node, list.querySelector('.btn-add') || null);
+      }
+    });
+
+    // remove stale cards
+    Object.values(existing).forEach(n => n.remove());
+  }
+
+  // ── 렌더: 시퀀스 카드 ──────────────────────────────────────────────────
+  function renderSequences() {
+    const list = document.getElementById('seqList');
+    const empty = document.getElementById('seqEmpty');
+    document.getElementById('seqCount').textContent = state.sequences.length;
+
+    if (state.sequences.length === 0) {
+      empty.style.display = '';
+      list.querySelectorAll('.seq-card').forEach(n => n.remove());
+      return;
+    }
+    empty.style.display = 'none';
+
+    const existing = {};
+    list.querySelectorAll('.seq-card').forEach(n => { existing[n.dataset.id] = n; });
+
+    [...state.sequences].reverse().forEach(seq => {
+      const total = seq.total_steps || 1;
+      const pct = total > 0 ? Math.round((seq.current_step_index / total) * 100) : 0;
+      const s = seq.status;
+      const canRun = (s === 'pending' || s === 'error' || s === 'cancelled');
+
+      const createdAt = new Date(seq.created_at).toLocaleString('ko-KR', {
+        month: 'numeric', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+
+      const html = `
+        <div class="seq-card-header">
+          <span class="seq-name" title="${seq.name}">${seq.name}</span>
+          <span class="status-badge status-${s}">${statusLabel(s)}</span>
+        </div>
+        <div class="seq-meta">
+          ${createdAt} &nbsp;·&nbsp; ${seq.current_step_index} / ${seq.total_steps} 스텝
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill status-${s}" style="width:${pct}%"></div>
+        </div>
+        <div class="seq-footer">
+          <button class="btn-exec" data-seq-id="${seq.id}" ${canRun ? '' : 'disabled'}>
+            ${s === 'running' ? '실행 중' : '실행'}
+          </button>
+        </div>`;
+
+      if (existing[seq.id]) {
+        existing[seq.id].innerHTML = html;
+        delete existing[seq.id];
+      } else {
+        const node = document.createElement('div');
+        node.className = 'seq-card';
+        node.dataset.id = seq.id;
+        node.innerHTML = html;
+        list.insertBefore(node, list.querySelector('.btn-add') || null);
+      }
+    });
+
+    Object.values(existing).forEach(n => n.remove());
+
+    // 실행 버튼 이벤트 재바인딩
+    list.querySelectorAll('.btn-exec:not([disabled])').forEach(btn => {
+      btn.onclick = () => executeSequence(btn.dataset.seqId);
+    });
+  }
+
+  // ── 상태 변화 감지 → 로그 ─────────────────────────────────────────────
+  function detectSeqChanges(seqs) {
+    seqs.forEach(seq => {
+      const prev = state.prevSeqStatuses[seq.id];
+      if (prev !== undefined && prev !== seq.status) {
+        const icons = { done: '✓', error: '✗', running: '▶', paused: '⏸', cancelled: '✕' };
+        const classes = { done: 'ok', error: 'err', running: 'info', paused: 'warn', cancelled: '' };
+        const icon = icons[seq.status] || '·';
+        const cls = classes[seq.status] || '';
+        addLog(`시퀀스 "${seq.name}" → ${statusLabel(seq.status)}`, cls, icon);
+      }
+      state.prevSeqStatuses[seq.id] = seq.status;
+    });
+  }
+
+  // ── API 호출 ───────────────────────────────────────────────────────────
+  async function apiFetch(url, opts = {}) {
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  async function refreshDevices() {
+    const devices = await apiFetch('/api/v1/equipment/devices');
+    state.devices = devices;
+
+    // 장비 상태 병렬 조회
+    const stateResults = await Promise.allSettled(
+      devices.map(d => apiFetch(`/api/v1/equipment/devices/${d.id}/state`))
+    );
+    stateResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        state.deviceStates[devices[i].id] = r.value;
+      }
+    });
+    renderDevices();
+  }
+
+  async function refreshSequences() {
+    const seqs = await apiFetch('/api/v1/equipment/sequences');
+    detectSeqChanges(seqs);
+    state.sequences = seqs;
+    renderSequences();
+  }
+
+  async function executeSequence(seqId) {
+    try {
+      await apiFetch(`/api/v1/equipment/sequences/${seqId}/execute`, { method: 'POST' });
+      toast('시퀀스 실행 시작', 'success');
+      addLog(`시퀀스 실행 요청 전송됨 (${seqId})`, 'info', '▶');
+      await refreshSequences();
+    } catch (e) {
+      toast(`실행 실패: ${e.message}`, 'error');
+      addLog(`시퀀스 실행 실패: ${e.message}`, 'err', '✗');
+    }
+  }
+
+  // ── 폴링 ──────────────────────────────────────────────────────────────
+  async function pollAll() {
+    try {
+      await Promise.all([refreshDevices(), refreshSequences()]);
+      if (!state.pollOk) {
+        state.pollOk = true;
+        document.getElementById('pollDot').classList.remove('stale');
+        addLog('서버 연결 복구됨', 'ok', '✓');
+      }
+    } catch (e) {
+      if (state.pollOk) {
+        state.pollOk = false;
+        document.getElementById('pollDot').classList.add('stale');
+        addLog(`폴링 실패: ${e.message}`, 'err', '✗');
+      }
+    }
+  }
+
+  pollAll();
+  setInterval(pollAll, 2000);
+
+  // ── E-STOP ─────────────────────────────────────────────────────────────
+  document.getElementById('estopBtn').addEventListener('click', async () => {
+    if (!confirm('비상 정지하시겠습니까?\n\n모든 실행 중인 장비가 즉시 정지됩니다.')) return;
+    try {
+      await apiFetch('/api/v1/equipment/estop', {
+        method: 'POST',
+        body: JSON.stringify({ reason: '대시보드 수동 E-STOP' }),
+      });
+      toast('비상 정지 명령 전송됨', 'error');
+      addLog('E-STOP 명령 전송됨', 'err', '⚠');
+      await pollAll();
+    } catch (e) {
+      toast(`E-STOP 실패: ${e.message}`, 'error');
+    }
+  });
+
+  // ── 장비 등록 모달 ────────────────────────────────────────────────────
+  const modalDevice = document.getElementById('modalDevice');
+  document.getElementById('btnAddDevice').addEventListener('click', () => {
+    modalDevice.classList.remove('hidden');
+    document.getElementById('dId').focus();
+  });
+  document.getElementById('modalDeviceCancel').addEventListener('click', () => {
+    modalDevice.classList.add('hidden');
+  });
+  modalDevice.addEventListener('click', e => {
+    if (e.target === modalDevice) modalDevice.classList.add('hidden');
+  });
+  document.getElementById('modalDeviceSubmit').addEventListener('click', async () => {
+    const id = document.getElementById('dId').value.trim();
+    const name = document.getElementById('dName').value.trim();
+    const ip = document.getElementById('dIp').value.trim();
+    const port = parseInt(document.getElementById('dPort').value.trim()) || 8080;
+    const type = document.getElementById('dType').value;
+    if (!id || !name || !ip) { toast('ID, 이름, IP는 필수입니다', 'error'); return; }
+    try {
+      await apiFetch('/api/v1/equipment/devices', {
+        method: 'POST',
+        body: JSON.stringify({ id, name, ip_address: ip, port, device_type: type }),
+      });
+      modalDevice.classList.add('hidden');
+      toast(`장비 ${id} 등록 완료`, 'success');
+      addLog(`장비 등록됨: ${id} (${ip}:${port})`, 'ok', '✓');
+      document.getElementById('dId').value = '';
+      document.getElementById('dName').value = '';
+      document.getElementById('dIp').value = '';
+      document.getElementById('dPort').value = '8080';
+      await refreshDevices();
+    } catch (e) {
+      toast(`등록 실패: ${e.message}`, 'error');
+    }
+  });
+
+  // ── 시퀀스 생성 모달 ──────────────────────────────────────────────────
+  const modalSeq = document.getElementById('modalSeq');
+  let stepCount = 0;
+
+  function addStepRow() {
+    stepCount++;
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.dataset.step = stepCount;
+    row.innerHTML = `
+      <input type="text" placeholder="장치 ID" class="s-device">
+      <select class="s-cmd">
+        <option value="charge">charge</option>
+        <option value="discharge">discharge</option>
+        <option value="measure">measure</option>
+        <option value="reset">reset</option>
+      </select>
+      <input type="text" placeholder="300" class="s-timeout" value="300">
+      <button class="btn-remove-step" title="삭제">×</button>`;
+    row.querySelector('.btn-remove-step').addEventListener('click', () => row.remove());
+    document.getElementById('stepList').appendChild(row);
+  }
+
+  document.getElementById('btnAddDevice').addEventListener('click', () => {});  // already bound above
+
+  document.getElementById('btnAddSeq').addEventListener('click', () => {
+    document.getElementById('stepList').innerHTML = '';
+    stepCount = 0;
+    document.getElementById('sName').value = '';
+    document.getElementById('seqAutoRun').checked = true;
+    addStepRow();
+    modalSeq.classList.remove('hidden');
+    document.getElementById('sName').focus();
+  });
+  document.getElementById('btnAddStep').addEventListener('click', addStepRow);
+  document.getElementById('modalSeqCancel').addEventListener('click', () => {
+    modalSeq.classList.add('hidden');
+  });
+  modalSeq.addEventListener('click', e => {
+    if (e.target === modalSeq) modalSeq.classList.add('hidden');
+  });
+  document.getElementById('modalSeqSubmit').addEventListener('click', async () => {
+    const name = document.getElementById('sName').value.trim();
+    if (!name) { toast('시퀀스 이름을 입력하세요', 'error'); return; }
+    const stepRows = document.getElementById('stepList').querySelectorAll('.step-row');
+    if (stepRows.length === 0) { toast('스텝을 최소 1개 추가하세요', 'error'); return; }
+    const steps = [];
+    for (const row of stepRows) {
+      const deviceId = row.querySelector('.s-device').value.trim();
+      if (!deviceId) { toast('모든 스텝의 장치 ID를 입력하세요', 'error'); return; }
+      steps.push({
+        device_id: deviceId,
+        command_type: row.querySelector('.s-cmd').value,
+        params: {},
+        timeout_seconds: parseInt(row.querySelector('.s-timeout').value) || 300,
+      });
+    }
+    const autoRun = document.getElementById('seqAutoRun').checked;
+    try {
+      const seq = await apiFetch('/api/v1/equipment/sequences', {
+        method: 'POST',
+        body: JSON.stringify({ name, steps }),
+      });
+      modalSeq.classList.add('hidden');
+      toast(`시퀀스 "${name}" 생성됨`, 'success');
+      addLog(`시퀀스 생성됨: "${name}" (${steps.length}스텝)`, 'info', '·');
+      await refreshSequences();
+      if (autoRun) {
+        await executeSequence(seq.id);
+      }
+    } catch (e) {
+      toast(`생성 실패: ${e.message}`, 'error');
+    }
+  });
+
+})();
+</script>
+{% endblock %}

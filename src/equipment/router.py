@@ -18,6 +18,7 @@ from src.equipment.models import (
     Sequence,
     SequenceCreateRequest,
     SequenceResponse,
+    SequenceStatus,
     CommandStep,
 )
 from src.equipment.orchestrator import EquipmentOrchestrator
@@ -129,6 +130,7 @@ async def execute_sequence(
     seq = await repo.get_sequence(sequence_id)
     if seq is None:
         raise HTTPException(status_code=404, detail=f"Sequence {sequence_id} not found")
+    await repo.update_sequence_status(sequence_id, SequenceStatus.PENDING, current_step_index=0)
     asyncio.create_task(orchestrator.execute_sequence(sequence_id))
     return {"sequence_id": sequence_id, "status": "started"}
 
