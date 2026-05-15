@@ -31,7 +31,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from src.api.dependencies import get_pipeline, set_pipeline, set_chat_repo, set_missed_query_logger
+from src.api.dependencies import (
+    get_pipeline,
+    set_pipeline,
+    set_chat_repo,
+    set_missed_query_logger,
+    set_equipment_repo,
+    set_orchestrator,
+)
 from src.api.models import (
     ErrorResponse,
     HealthResponse,
@@ -49,8 +56,11 @@ from src.api.alarm_router import router as alarm_router
 from src.api.submit_router import router as submit_router
 from src.api.chat_router import router as chat_router
 from src.api.missed_queries_router import router as missed_queries_router
+from src.equipment.router import router as equipment_router
 from src.chat.repository import ChatRepository
 from src.missed_queries import MissedQueryLogger
+from src.equipment.repository import EquipmentRepository
+from src.equipment.orchestrator import EquipmentOrchestrator
 from src.config import get_settings
 from src.logger import get_logger, setup_logging
 from src.pipeline import IssuePipeline
@@ -72,6 +82,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Issue Pipeline API 서버 시작 중... (v%s)", APP_VERSION)
 
     _chat_repo: ChatRepository | None = None
+    _equipment_repo_instance: EquipmentRepository | None = None
+    _orchestrator_instance: EquipmentOrchestrator | None = None
     try:
         _pipeline_instance = IssuePipeline.from_settings(settings)
         set_pipeline(_pipeline_instance)
@@ -82,6 +94,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         _missed_query_logger = await MissedQueryLogger.create(_chat_repo._pool)
         set_missed_query_logger(_missed_query_logger)
+
+        _equipment_repo_instance = EquipmentRepository(settings.postgres_url)
+        await _equipment_repo_instance.initialize()
+        set_equipment_repo(_equipment_repo_instance)
+
+        _orchestrator_instance = EquipmentOrchestrator(_equipment_repo_instance)
+        await _orchestrator_instance.start()
+        set_orchestrator(_orchestrator_instance)
 
         logger.info("파이프라인 초기화 완료 - API 서버 준비됨")
     except Exception as exc:
@@ -96,6 +116,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _chat_repo.close()
     set_chat_repo(None)
     set_missed_query_logger(None)
+    if _orchestrator_instance is not None:
+        await _orchestrator_instance.stop()
+    set_orchestrator(None)
+    if _equipment_repo_instance is not None:
+        await _equipment_repo_instance.close()
+    set_equipment_repo(None)
 
 
 # FastAPI 앱 생성
@@ -134,6 +160,7 @@ app.include_router(alarm_router)
 app.include_router(submit_router)
 app.include_router(chat_router)
 app.include_router(missed_queries_router)
+app.include_router(equipment_router)
 
 
 # ---- 전역 예외 핸들러 ----

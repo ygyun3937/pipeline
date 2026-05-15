@@ -6,6 +6,8 @@ from fastapi import HTTPException
 from src.chat.repository import ChatRepository
 from src.missed_queries import MissedQueryLogger
 from src.pipeline import IssuePipeline
+from src.equipment.repository import EquipmentRepository
+from src.equipment.orchestrator import EquipmentOrchestrator
 
 # 파이프라인 싱글턴 (main.py의 lifespan에서 초기화)
 _pipeline: IssuePipeline | None = None
@@ -58,3 +60,29 @@ def get_missed_query_logger() -> MissedQueryLogger:
             detail="미답변 질문 로거가 초기화되지 않았습니다.",
         )
     return _missed_query_logger
+
+
+_equipment_repo: EquipmentRepository | None = None
+_orchestrator: EquipmentOrchestrator | None = None
+
+
+def set_equipment_repo(repo: EquipmentRepository | None) -> None:
+    global _equipment_repo  # noqa: PLW0603
+    _equipment_repo = repo
+
+
+def get_equipment_repo() -> EquipmentRepository:
+    if _equipment_repo is None:
+        raise HTTPException(status_code=503, detail="EquipmentRepository가 초기화되지 않았습니다.")
+    return _equipment_repo
+
+
+def set_orchestrator(orch: EquipmentOrchestrator | None) -> None:
+    global _orchestrator  # noqa: PLW0603
+    _orchestrator = orch
+
+
+def get_orchestrator() -> EquipmentOrchestrator:
+    if _orchestrator is None:
+        raise HTTPException(status_code=503, detail="EquipmentOrchestrator가 초기화되지 않았습니다.")
+    return _orchestrator

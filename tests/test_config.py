@@ -21,10 +21,11 @@ def test_llm_backend_from_env(monkeypatch):
     assert s.llm_backend == "ollama"
 
 
-def test_default_postgres_url():
-    s = Settings()
+def test_default_postgres_url(monkeypatch):
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    s = Settings(_env_file=None)
     assert "pipeline" in s.postgres_url
-    assert "5432" in s.postgres_url
+    assert "5435" in s.postgres_url
 
 
 def test_postgres_async_url_prefix():
