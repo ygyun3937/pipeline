@@ -16,6 +16,8 @@ AGENT_PORT: int = int(os.environ.get("AGENT_PORT", "8081"))
 AGENT_DEVICE_TYPE: str = os.environ.get("AGENT_DEVICE_TYPE", "charger")
 CENTRAL_BACKEND_URL: str = os.environ.get("CENTRAL_BACKEND_URL", "http://localhost:8000")
 SIMULATE_ERROR_RATE: float = float(os.environ.get("SIMULATE_ERROR_RATE", "0.0"))
+# SIMULATE_ANOMALY=true 시 충전 중 온도가 50°C까지 상승하여 이상 감지 트리거
+SIMULATE_ANOMALY: bool = os.environ.get("SIMULATE_ANOMALY", "false").lower() == "true"
 
 
 @dataclass
@@ -55,6 +57,9 @@ async def _simulate_command(command_id: str, command_type: str, params: dict) ->
                     await asyncio.sleep(0.2)
                 _state.voltage = round(i * (4.2 / steps), 3)
                 _state.current = params.get("current", 1.0)
+                # 이상 시뮬레이션: 충전 후반에 온도 50°C로 상승 (warning 임계값 45°C 초과)
+                if SIMULATE_ANOMALY:
+                    _state.temperature = round(25.0 + i * (25.0 / steps), 1)
                 await asyncio.sleep(0.5)
 
         elif command_type == "discharge":
