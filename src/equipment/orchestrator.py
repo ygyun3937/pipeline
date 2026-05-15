@@ -83,21 +83,44 @@ class EquipmentOrchestrator:
                         "command_type": command.command_type,
                         "params": command.params,
                     },
-                    timeout=timeout,
+                    timeout=30,
                 )
                 resp.raise_for_status()
-                return True
-            except Exception as exc:
+
+                # 에이전트는 비동기 실행 → 완료 콜백까지 폴링 대기
+                completed = await self._wait_for_completion(command.id, timeout)
+                if completed:
+                    return True
+
+                # 타임아웃: 재시도
                 if attempt == self.MAX_RETRIES:
                     await self._repo.update_command_status(
-                        command.id,
-                        CommandStatus.ERROR,
-                        str(exc),
+                        command.id, CommandStatus.ERROR, "Timeout",
                         completed_at=datetime.now(timezone.utc),
                     )
                     return False
-                await asyncio.sleep(2**attempt)
 
+            except Exception as exc:
+                if attempt == self.MAX_RETRIES:
+                    await self._repo.update_command_status(
+                        command.id, CommandStatus.ERROR, str(exc),
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    return False
+                await asyncio.sleep(2 ** attempt)
+
+        return False
+
+    async def _wait_for_completion(self, command_id: str, timeout: int) -> bool:
+        """명령 완료(done/error) 콜백이 DB에 반영될 때까지 폴링."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            cmd = await self._repo.get_command(command_id)
+            if cmd and cmd.status == CommandStatus.DONE:
+                return True
+            if cmd and cmd.status == CommandStatus.ERROR:
+                return False
+            await asyncio.sleep(1)
         return False
 
     async def handle_command_result(
