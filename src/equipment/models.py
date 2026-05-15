@@ -32,6 +32,7 @@ class CommandStatus(str, Enum):
 
 class SequenceStatus(str, Enum):
     PENDING = "pending"
+    PENDING_APPROVAL = "pending_approval"
     RUNNING = "running"
     DONE = "done"
     ERROR = "error"
@@ -107,6 +108,18 @@ class CommandLog:
     event: str
     payload: dict[str, Any]
     occurred_at: datetime = field(default_factory=_utcnow)
+
+
+@dataclass
+class AnomalyLog:
+    id: str
+    device_id: str
+    metric: str          # "temperature" / "voltage" / "current"
+    value: float
+    threshold: float
+    severity: str        # "warning" / "critical"
+    detected_at: datetime = field(default_factory=_utcnow)
+    rag_analysis: str | None = None
 
 
 # ── API Request / Response Pydantic models ─────────────────────────────────
@@ -185,3 +198,14 @@ class CommandResultPayload(BaseModel):
     status: CommandStatus
     error_message: str | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnomalyResponse(BaseModel):
+    id: str
+    device_id: str
+    metric: str
+    value: float
+    threshold: float
+    severity: str
+    detected_at: datetime
+    rag_analysis: str | None

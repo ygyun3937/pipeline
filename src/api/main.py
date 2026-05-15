@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _equipment_repo_instance.initialize()
         set_equipment_repo(_equipment_repo_instance)
 
-        _orchestrator_instance = EquipmentOrchestrator(_equipment_repo_instance)
+        _orchestrator_instance = EquipmentOrchestrator(_equipment_repo_instance, _pipeline_instance)
         await _orchestrator_instance.start()
         set_orchestrator(_orchestrator_instance)
 

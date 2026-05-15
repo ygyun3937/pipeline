@@ -159,7 +159,7 @@ def test_execute_sequence_starts_task(client, mock_repo, mock_orchestrator):
     resp = client.post("/api/v1/equipment/sequences/seq-001/execute")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "started"
+    assert data["status"] == "pending_approval"
     assert data["sequence_id"] == "seq-001"
 
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import get_equipment_repo, get_orchestrator
 from src.equipment.models import (
+    AnomalyResponse,
     Command,
     CommandResultPayload,
     Device,
@@ -125,14 +126,42 @@ async def create_sequence(
 async def execute_sequence(
     sequence_id: str,
     repo: EquipmentRepository = Depends(get_equipment_repo),
+) -> dict:
+    seq = await repo.get_sequence(sequence_id)
+    if seq is None:
+        raise HTTPException(status_code=404, detail=f"Sequence {sequence_id} not found")
+    await repo.update_sequence_status(sequence_id, SequenceStatus.PENDING_APPROVAL, current_step_index=0)
+    return {"sequence_id": sequence_id, "status": "pending_approval"}
+
+
+@router.post("/sequences/{sequence_id}/approve")
+async def approve_sequence(
+    sequence_id: str,
+    repo: EquipmentRepository = Depends(get_equipment_repo),
     orchestrator: EquipmentOrchestrator = Depends(get_orchestrator),
 ) -> dict:
     seq = await repo.get_sequence(sequence_id)
     if seq is None:
         raise HTTPException(status_code=404, detail=f"Sequence {sequence_id} not found")
+    if seq.status != SequenceStatus.PENDING_APPROVAL:
+        raise HTTPException(status_code=400, detail=f"Sequence is not pending approval (status: {seq.status})")
     await repo.update_sequence_status(sequence_id, SequenceStatus.PENDING, current_step_index=0)
     asyncio.create_task(orchestrator.execute_sequence(sequence_id))
-    return {"sequence_id": sequence_id, "status": "started"}
+    return {"sequence_id": sequence_id, "status": "approved"}
+
+
+@router.post("/sequences/{sequence_id}/reject")
+async def reject_sequence(
+    sequence_id: str,
+    repo: EquipmentRepository = Depends(get_equipment_repo),
+) -> dict:
+    seq = await repo.get_sequence(sequence_id)
+    if seq is None:
+        raise HTTPException(status_code=404, detail=f"Sequence {sequence_id} not found")
+    if seq.status != SequenceStatus.PENDING_APPROVAL:
+        raise HTTPException(status_code=400, detail=f"Sequence is not pending approval (status: {seq.status})")
+    await repo.update_sequence_status(sequence_id, SequenceStatus.CANCELLED)
+    return {"sequence_id": sequence_id, "status": "rejected"}
 
 
 @router.get("/sequences/{sequence_id}", response_model=SequenceResponse)
@@ -173,6 +202,28 @@ async def emergency_stop(
 ) -> dict:
     await orchestrator.emergency_stop(body.reason)
     return {"ok": True, "reason": body.reason}
+
+
+@router.get("/anomalies", response_model=list[AnomalyResponse])
+async def list_anomalies(
+    device_id: str | None = None,
+    limit: int = 50,
+    repo: EquipmentRepository = Depends(get_equipment_repo),
+) -> list[AnomalyResponse]:
+    anomalies = await repo.list_anomalies(device_id=device_id, limit=limit)
+    return [
+        AnomalyResponse(
+            id=a.id,
+            device_id=a.device_id,
+            metric=a.metric,
+            value=a.value,
+            threshold=a.threshold,
+            severity=a.severity,
+            detected_at=a.detected_at,
+            rag_analysis=a.rag_analysis,
+        )
+        for a in anomalies
+    ]
 
 
 @router.get("/devices/{device_id}/state")

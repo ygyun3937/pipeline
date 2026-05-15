@@ -69,7 +69,7 @@ main {
   flex: 1;
   display: grid;
   grid-template-columns: 340px 1fr;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr 160px;
   overflow: hidden;
 }
 
@@ -94,16 +94,59 @@ main {
   overflow: hidden;
 }
 
-/* ── 하단: 이벤트 로그 ── */
-.panel-log {
+/* ── 하단 패널 래퍼 ── */
+.panel-bottom {
   grid-column: 1 / -1;
   grid-row: 2;
-  height: 140px;
+  display: grid;
+  grid-template-columns: 1fr 320px;
   border-top: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+/* ── 하단: 이벤트 로그 ── */
+.panel-log {
   background: #0f172a;
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* ── 하단: 이상 감지 ── */
+.panel-anomalies {
+  background: #0f172a;
+  border-left: 1px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.anomaly-entries {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.375rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.anomaly-entry {
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+}
+.anomaly-entry.warning  { background: rgba(245,158,11,.12); border-left: 2px solid #f59e0b; }
+.anomaly-entry.critical { background: rgba(239,68,68,.12);  border-left: 2px solid #ef4444; }
+.anomaly-metric { font-weight: 700; color: #f1f5f9; }
+.anomaly-device { color: #94a3b8; font-size: 0.65rem; }
+.anomaly-value  { font-family: ui-monospace,monospace; color: #fbbf24; }
+.anomaly-rag    { color: #7dd3fc; font-size: 0.65rem; margin-top: 2px; white-space: pre-wrap; }
+.anomaly-empty  { color: #475569; font-size: 0.75rem; text-align: center; padding: 1rem; }
+.panel-count-dark {
+  font-size: 0.75rem;
+  background: #1e293b;
+  color: #64748b;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 600;
 }
 
 /* ── 패널 헤더 ── */
@@ -217,6 +260,7 @@ main {
 .status-offline { color: #475569; background: #e2e8f0; }
 .status-pending   { color: #6d28d9; background: #ede9fe; }
 .status-cancelled { color: #71717a; background: #f4f4f5; }
+.status-pending_approval { color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; }
 
 /* 깜빡임 — running 장비 카드 */
 @keyframes pulse-running {
@@ -328,6 +372,7 @@ main {
 .progress-fill.status-done      { background: #06b6d4; }
 .progress-fill.status-error     { background: #ef4444; }
 .progress-fill.status-cancelled { background: #94a3b8; }
+.progress-fill.status-pending_approval { background: #f59e0b; }
 
 .seq-footer {
   display: flex;
@@ -349,6 +394,32 @@ main {
 }
 .btn-exec:hover { background: #4338ca; }
 .btn-exec:disabled { background: #c7d2fe; cursor: not-allowed; }
+.btn-approve {
+  padding: 4px 12px;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s;
+}
+.btn-approve:hover { background: #15803d; }
+.btn-reject {
+  padding: 4px 10px;
+  background: #f1f5f9;
+  color: #dc2626;
+  border: 1.5px solid #fca5a5;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s;
+}
+.btn-reject:hover { background: #fee2e2; }
 
 /* ── 이벤트 로그 ── */
 .log-entries {
@@ -626,16 +697,27 @@ main {
     </button>
   </div>
 
-  <!-- 하단: 이벤트 로그 -->
-  <div class="panel-log">
-    <div class="panel-header-dark">
-      <span class="panel-label-dark">이벤트 로그</span>
+  <!-- 하단: 이벤트 로그 + 이상 감지 -->
+  <div class="panel-bottom">
+    <div class="panel-log">
+      <div class="panel-header-dark">
+        <span class="panel-label-dark">이벤트 로그</span>
+      </div>
+      <div class="log-entries" id="logEntries">
+        <div class="log-entry">
+          <span class="log-ts">--:--:--</span>
+          <span class="log-icon">·</span>
+          <span class="log-msg">대기 중...</span>
+        </div>
+      </div>
     </div>
-    <div class="log-entries" id="logEntries">
-      <div class="log-entry">
-        <span class="log-ts">--:--:--</span>
-        <span class="log-icon">·</span>
-        <span class="log-msg">대기 중...</span>
+    <div class="panel-anomalies">
+      <div class="panel-header-dark">
+        <span class="panel-label-dark">이상 감지</span>
+        <span class="panel-count-dark" id="anomalyCount">0</span>
+      </div>
+      <div class="anomaly-entries" id="anomalyList">
+        <div class="anomaly-empty">이상 없음</div>
       </div>
     </div>
   </div>
@@ -747,7 +829,7 @@ main {
     const map = {
       idle: '대기', ready: '준비', running: '실행 중', paused: '일시정지',
       done: '완료', error: '오류', estop: 'E-STOP', offline: '오프라인',
-      pending: '대기', cancelled: '취소됨',
+      pending: '대기', cancelled: '취소됨', pending_approval: '승인 대기',
     };
     return map[status] || status;
   }
@@ -867,6 +949,7 @@ main {
       const pct = total > 0 ? Math.round((seq.current_step_index / total) * 100) : 0;
       const s = seq.status;
       const canRun = (s === 'pending' || s === 'done' || s === 'error' || s === 'cancelled');
+      const needsApproval = s === 'pending_approval';
 
       const createdAt = new Date(seq.created_at).toLocaleString('ko-KR', {
         month: 'numeric', day: 'numeric',
@@ -885,9 +968,13 @@ main {
           <div class="progress-fill status-${s}" style="width:${pct}%"></div>
         </div>
         <div class="seq-footer">
-          <button class="btn-exec" data-seq-id="${seq.id}" ${canRun ? '' : 'disabled'}>
-            ${s === 'running' ? '실행 중' : '실행'}
-          </button>
+          ${needsApproval
+            ? `<button class="btn-reject" data-seq-id="${seq.id}">거부</button>
+               <button class="btn-approve" data-seq-id="${seq.id}">승인</button>`
+            : `<button class="btn-exec" data-seq-id="${seq.id}" ${canRun ? '' : 'disabled'}>
+                 ${s === 'running' ? '실행 중' : '실행'}
+               </button>`
+          }
         </div>`;
 
       if (existing[seq.id]) {
@@ -908,6 +995,12 @@ main {
     list.querySelectorAll('.btn-exec:not([disabled])').forEach(btn => {
       btn.onclick = () => executeSequence(btn.dataset.seqId);
     });
+    list.querySelectorAll('.btn-approve').forEach(btn => {
+      btn.onclick = () => approveSequence(btn.dataset.seqId);
+    });
+    list.querySelectorAll('.btn-reject').forEach(btn => {
+      btn.onclick = () => rejectSequence(btn.dataset.seqId);
+    });
   }
 
   // ── 상태 변화 감지 → 로그 ─────────────────────────────────────────────
@@ -915,8 +1008,8 @@ main {
     seqs.forEach(seq => {
       const prev = state.prevSeqStatuses[seq.id];
       if (prev !== undefined && prev !== seq.status) {
-        const icons = { done: '✓', error: '✗', running: '▶', paused: '⏸', cancelled: '✕' };
-        const classes = { done: 'ok', error: 'err', running: 'info', paused: 'warn', cancelled: '' };
+        const icons = { done: '✓', error: '✗', running: '▶', paused: '⏸', cancelled: '✕', pending_approval: '⏳' };
+        const classes = { done: 'ok', error: 'err', running: 'info', paused: 'warn', cancelled: '', pending_approval: 'warn' };
         const icon = icons[seq.status] || '·';
         const cls = classes[seq.status] || '';
         addLog(`시퀀스 "${seq.name}" → ${statusLabel(seq.status)}`, cls, icon);
@@ -964,19 +1057,67 @@ main {
   async function executeSequence(seqId) {
     try {
       await apiFetch(`/api/v1/equipment/sequences/${seqId}/execute`, { method: 'POST' });
-      toast('시퀀스 실행 시작', 'success');
-      addLog(`시퀀스 실행 요청 전송됨 (${seqId})`, 'info', '▶');
+      toast('실행 승인 요청됨 — 승인 후 시작됩니다', 'info');
+      addLog(`시퀀스 승인 대기 중 (${seqId})`, 'warn', '⏳');
       await refreshSequences();
     } catch (e) {
-      toast(`실행 실패: ${e.message}`, 'error');
-      addLog(`시퀀스 실행 실패: ${e.message}`, 'err', '✗');
+      toast(`실행 요청 실패: ${e.message}`, 'error');
+      addLog(`시퀀스 실행 요청 실패: ${e.message}`, 'err', '✗');
     }
+  }
+
+  async function approveSequence(seqId) {
+    try {
+      await apiFetch(`/api/v1/equipment/sequences/${seqId}/approve`, { method: 'POST' });
+      toast('시퀀스 승인됨 — 실행 시작', 'success');
+      addLog(`시퀀스 승인됨 (${seqId})`, 'ok', '✓');
+      await refreshSequences();
+    } catch (e) {
+      toast(`승인 실패: ${e.message}`, 'error');
+      addLog(`승인 실패: ${e.message}`, 'err', '✗');
+    }
+  }
+
+  async function rejectSequence(seqId) {
+    if (!confirm('시퀀스 실행을 거부하시겠습니까?')) return;
+    try {
+      await apiFetch(`/api/v1/equipment/sequences/${seqId}/reject`, { method: 'POST' });
+      toast('시퀀스 실행 거부됨', 'info');
+      addLog(`시퀀스 거부됨 (${seqId})`, 'warn', '✕');
+      await refreshSequences();
+    } catch (e) {
+      toast(`거부 실패: ${e.message}`, 'error');
+    }
+  }
+
+  async function refreshAnomalies() {
+    const anomalies = await apiFetch('/api/v1/equipment/anomalies?limit=20');
+    const el = document.getElementById('anomalyList');
+    document.getElementById('anomalyCount').textContent = anomalies.length;
+    if (anomalies.length === 0) {
+      el.innerHTML = '<div class="anomaly-empty">이상 없음</div>';
+      return;
+    }
+    const units = { temperature: '°C', voltage: 'V', current: 'A' };
+    el.innerHTML = anomalies.map(a => {
+      const u = units[a.metric] || '';
+      const ts = new Date(a.detected_at).toLocaleTimeString('ko-KR', { hour12: false });
+      const ragHtml = a.rag_analysis
+        ? `<div class="anomaly-rag">${a.rag_analysis.slice(0, 120)}${a.rag_analysis.length > 120 ? '…' : ''}</div>`
+        : '';
+      return `<div class="anomaly-entry ${a.severity}">
+        <span class="anomaly-metric">${a.metric}</span>
+        <span class="anomaly-value"> ${a.value.toFixed(2)}${u}</span>
+        <span class="anomaly-device"> · ${a.device_id} · ${ts}</span>
+        ${ragHtml}
+      </div>`;
+    }).join('');
   }
 
   // ── 폴링 ──────────────────────────────────────────────────────────────
   async function pollAll() {
     try {
-      await Promise.all([refreshDevices(), refreshSequences()]);
+      await Promise.all([refreshDevices(), refreshSequences(), refreshAnomalies()]);
       if (!state.pollOk) {
         state.pollOk = true;
         document.getElementById('pollDot').classList.remove('stale');

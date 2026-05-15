@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import asyncpg
 
 from src.equipment.models import (
+    AnomalyLog,
     Command,
     CommandLog,
     CommandStatus,
@@ -78,6 +79,19 @@ CREATE TABLE IF NOT EXISTS device_states (
     current_amps    FLOAT,
     extra           JSONB NOT NULL DEFAULT '{}',
     measured_at     TIMESTAMPTZ NOT NULL
+)
+"""
+
+_CREATE_ANOMALY_LOGS = """
+CREATE TABLE IF NOT EXISTS anomaly_logs (
+    id            TEXT PRIMARY KEY,
+    device_id     TEXT NOT NULL REFERENCES devices(id),
+    metric        TEXT NOT NULL,
+    value         FLOAT NOT NULL,
+    threshold     FLOAT NOT NULL,
+    severity      TEXT NOT NULL,
+    detected_at   TIMESTAMPTZ NOT NULL,
+    rag_analysis  TEXT
 )
 """
 
@@ -180,6 +194,7 @@ class EquipmentRepository:
             await conn.execute(_CREATE_COMMANDS)
             await conn.execute(_CREATE_COMMAND_LOGS)
             await conn.execute(_CREATE_DEVICE_STATES)
+            await conn.execute(_CREATE_ANOMALY_LOGS)
         logger.info("EquipmentRepository 초기화 완료: %s", self._url)
 
     async def close(self) -> None:
@@ -351,3 +366,49 @@ class EquipmentRepository:
                 "SELECT * FROM device_states WHERE device_id=$1", device_id
             )
         return _row_to_device_state(row) if row else None
+
+    # ── AnomalyLog ────────────────────────────────────────────────────────────
+
+    async def log_anomaly(self, anomaly: AnomalyLog) -> None:
+        pool = self._pool_or_raise()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO anomaly_logs(id, device_id, metric, value, threshold, severity, detected_at, rag_analysis) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                anomaly.id, anomaly.device_id, anomaly.metric, anomaly.value,
+                anomaly.threshold, anomaly.severity, anomaly.detected_at, anomaly.rag_analysis,
+            )
+
+    async def update_anomaly_rag(self, anomaly_id: str, rag_analysis: str) -> None:
+        pool = self._pool_or_raise()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE anomaly_logs SET rag_analysis=$1 WHERE id=$2",
+                rag_analysis, anomaly_id,
+            )
+
+    async def list_anomalies(self, device_id: str | None = None, limit: int = 50) -> list[AnomalyLog]:
+        pool = self._pool_or_raise()
+        async with pool.acquire() as conn:
+            if device_id:
+                rows = await conn.fetch(
+                    "SELECT * FROM anomaly_logs WHERE device_id=$1 ORDER BY detected_at DESC LIMIT $2",
+                    device_id, limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT * FROM anomaly_logs ORDER BY detected_at DESC LIMIT $1", limit
+                )
+        return [
+            AnomalyLog(
+                id=r["id"],
+                device_id=r["device_id"],
+                metric=r["metric"],
+                value=r["value"],
+                threshold=r["threshold"],
+                severity=r["severity"],
+                detected_at=r["detected_at"],
+                rag_analysis=r["rag_analysis"],
+            )
+            for r in rows
+        ]
