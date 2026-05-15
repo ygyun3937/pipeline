@@ -551,206 +551,209 @@ resolved_at: 2024-08-13
 
 ## 장비 제어 아키텍처 (PC-to-PC 중앙 백엔드)
 
-여러 장비 PC를 중앙 서버에서 제어하는 구성. 현재 FastAPI 백엔드를 제어 허브로 확장한다.
+### 구성 요소 역할 및 기술 스택
 
-### 전체 시스템 구조
+| 구성 요소 | 역할 | 기술 스택 |
+|---------|------|---------|
+| **중앙 서버** | 제어 허브, AI 분석, 이력 저장, 운영자 UI | FastAPI, PostgreSQL+pgvector, RAG(Claude/Ollama), asyncpg |
+| **장비 에이전트** | 중앙 서버 ↔ 장비 통신 중계, 로컬 안전 감시 | FastAPI(경량), httpx, pymodbus/pyserial/asyncua |
+| **실제 장비** | 물리 동작 수행 | Modbus RTU/TCP, RS-485, OPC-UA, SCPI |
 
-```mermaid
-graph TB
-    subgraph "운영자 PC"
-        UI[웹 대시보드]
-        CLI[CLI 제어 도구]
-    end
+> 장비 에이전트는 AI 없는 순수 통신 프로그램. AI(RAG)는 중앙 서버에서만 동작.
 
-    subgraph "중앙 백엔드 서버 PC"
-        API[FastAPI REST + WebSocket]
-        ORC[오케스트레이터\n명령 시퀀스 관리]
-        CQ[명령 큐\nasyncio.Queue]
-        SM[상태 관리자\n장비별 현재 상태]
-        DB[(PostgreSQL\n명령 이력 / 장비 등록)]
-        LOG[감사 로그]
-    end
+---
 
-    subgraph "장비 PC-1 (충방전기 A)"
-        AG1[장비 에이전트\nFastAPI 경량 서버]
-        HW1[하드웨어 드라이버\nModbus / RS-485]
-        EQ1[실제 장비]
-    end
+### 에이전트 ↔ 장비 PC 프로토콜 정의
 
-    subgraph "장비 PC-2 (충방전기 B)"
-        AG2[장비 에이전트]
-        HW2[하드웨어 드라이버]
-        EQ2[실제 장비]
-    end
+에이전트와 실제 장비 사이는 장비 제조사의 통신 규격을 따른다.  
+**장비마다 레지스터 주소, 데이터 타입, 명령 코드가 다르므로 반드시 프로토콜 정의서가 필요하다.**
 
-    subgraph "장비 PC-3 (온도 챔버)"
-        AG3[장비 에이전트]
-        HW3[하드웨어 드라이버]
-        EQ3[실제 장비]
-    end
-
-    UI <-->|HTTP/WebSocket| API
-    CLI <-->|HTTP| API
-    API --> ORC --> CQ --> SM
-    SM <-->|REST/WebSocket| AG1
-    SM <-->|REST/WebSocket| AG2
-    SM <-->|REST/WebSocket| AG3
-    ORC --> DB
-    ORC --> LOG
-    AG1 --> HW1 --> EQ1
-    AG2 --> HW2 --> EQ2
-    AG3 --> HW3 --> EQ3
+```
+장비 에이전트
+└── drivers/
+    ├── base.py        # HardwareDriver 인터페이스 (공통)
+    ├── modbus.py      # Modbus TCP/RTU 구현
+    ├── opcua.py       # OPC-UA 구현
+    └── mock.py        # 시뮬레이션 (테스트용)
 ```
 
-### 명령 흐름
+**프로토콜 정의 예시 (Modbus 충방전기):**
+
+| 레지스터 | 주소 | 타입 | 설명 | 단위 |
+|---------|------|------|------|------|
+| 온도 읽기 | 0x0001 | READ | 현재 온도 | °C × 10 |
+| 전압 읽기 | 0x0002 | READ | 셀 전압 | mV |
+| 전류 읽기 | 0x0003 | READ | 충방전 전류 | mA |
+| 충전 시작 | 0x0100 | WRITE | CC-CV 충전 명령 | - |
+| 방전 시작 | 0x0101 | WRITE | 정전류 방전 명령 | - |
+| E-STOP | 0x0200 | WRITE | 긴급 정지 | - |
+| 상태 | 0x0300 | READ | 장비 상태 코드 | - |
+
+```python
+# drivers/modbus.py 구현 예시
+class ModbusDriver(HardwareDriver):
+    async def read_sensors(self) -> SensorData:
+        temperature = await self.client.read_register(0x0001) / 10
+        voltage     = await self.client.read_register(0x0002) / 1000
+        current     = await self.client.read_register(0x0003) / 1000
+        return SensorData(temperature, voltage, current)
+
+    async def execute_charge(self, params: dict) -> None:
+        await self.client.write_register(0x0100, params.get("target_voltage", 4200))
+
+    async def emergency_stop(self) -> None:
+        await self.client.write_register(0x0200, 0x01)
+```
+
+---
+
+### Flow 1 — 정상 제어 (시퀀스 실행)
 
 ```mermaid
 sequenceDiagram
     actor 운영자
-    participant API as 백엔드 API
-    participant ORC as 오케스트레이터
-    participant CQ as 명령 큐
-    participant AG1 as 장비 PC-1
-    participant AG2 as 장비 PC-2
+    participant SRV as 중앙 서버
+    participant AGT as 장비 에이전트
+    participant DRV as 드라이버 레이어
+    participant HW as 실제 장비
 
-    운영자->>API: POST /commands/sequence\n{"steps": ["A충전", "B방전"]}
-    API->>ORC: 시퀀스 등록
-    ORC->>CQ: 명령 1 enqueue (A충전)
-    ORC-->>API: sequence_id: "SEQ-001"
-    API-->>운영자: 202 Accepted
+    운영자->>SRV: 시퀀스 생성\nPOST /sequences
+    SRV-->>운영자: sequence_id 반환
 
-    CQ->>AG1: POST /execute {"cmd": "charge", "params": {...}}
-    AG1-->>CQ: 200 OK (started)
-    AG1-)API: WebSocket {"status": "running", "progress": 45%}
-    API-)운영자: 실시간 상태 업데이트
+    운영자->>SRV: 실행 요청\nPOST /sequences/{id}/execute
+    SRV->>AGT: POST /execute\n{command_id, command_type, params}
+    AGT-->>SRV: {"status": "started"}
 
-    AG1-)API: WebSocket {"status": "done"}
-    API->>ORC: 명령 1 완료 → 명령 2 unlock
-    ORC->>CQ: 명령 2 enqueue (B방전)
-    CQ->>AG2: POST /execute {"cmd": "discharge", ...}
+    AGT->>DRV: execute_charge(params)
+    DRV->>HW: Modbus Write 0x0100\n충전 시작 명령
+    HW-->>DRV: ACK
 
-    Note over AG1,AG2: 장비 이상 발생 시
-    AG2-)API: WebSocket {"status": "ERROR", "code": "OVER_TEMP"}
-    API->>ORC: 긴급 중단 처리
-    ORC->>AG1: POST /estop
-    ORC->>AG2: POST /estop
-    API-)운영자: 알람 전송
-```
-
-### 장비 상태 머신
-
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE : 부팅 완료
-    IDLE --> READY : 자가진단 통과
-    READY --> RUNNING : 명령 수신
-    RUNNING --> PAUSED : pause 명령
-    PAUSED --> RUNNING : resume 명령
-    RUNNING --> DONE : 작업 완료
-    DONE --> IDLE : reset 명령
-    RUNNING --> ERROR : 이상 감지
-    PAUSED --> ERROR : 이상 감지
-    ERROR --> IDLE : 에러 해제 + reset
-    READY --> ESTOP : E-STOP 신호
-    RUNNING --> ESTOP : E-STOP 신호
-    ESTOP --> IDLE : 안전 확인 후 복구
-
-    note right of ERROR
-        OVER_TEMP
-        OVER_CURRENT
-        COMM_TIMEOUT
-        HW_FAULT
-    end note
-```
-
-### 데이터 모델
-
-```mermaid
-erDiagram
-    DEVICE {
-        string id PK
-        string name
-        string ip_address
-        int port
-        string type
-        string status
-        timestamp last_heartbeat
-    }
-    SEQUENCE {
-        string id PK
-        string name
-        jsonb steps
-        string status
-        string created_by
-        timestamp created_at
-    }
-    COMMAND {
-        string id PK
-        string sequence_id FK
-        string device_id FK
-        string type
-        jsonb params
-        string status
-        int retry_count
-        timestamp issued_at
-        timestamp completed_at
-    }
-    COMMAND_LOG {
-        string id PK
-        string command_id FK
-        string event
-        jsonb payload
-        timestamp occurred_at
-    }
-    DEVICE_STATE {
-        string device_id FK
-        string status
-        float temperature
-        float voltage
-        float current
-        timestamp measured_at
-    }
-
-    DEVICE ||--o{ COMMAND : "receives"
-    SEQUENCE ||--o{ COMMAND : "contains"
-    COMMAND ||--o{ COMMAND_LOG : "logs"
-    DEVICE ||--|| DEVICE_STATE : "has"
-```
-
-### 장비 에이전트 구조 (각 장비 PC에 설치)
-
-```mermaid
-graph TD
-    subgraph "장비 PC 에이전트"
-        HTTP[FastAPI 경량 서버\n:8080]
-        WS[WebSocket 클라이언트\n→ 중앙 백엔드]
-        HB[하트비트\n5초마다 상태 전송]
-        CMD[명령 핸들러]
-        DRV[드라이버 레이어]
-        SAFE[안전 검증\n한계값 체크]
+    loop 실행 중 (1초 간격)
+        DRV->>HW: Modbus Read 0x0001~0x0003
+        HW-->>DRV: 온도/전압/전류
+        AGT->>SRV: POST /heartbeat\n{temperature, voltage, current}
+        SRV-->>운영자: 대시보드 실시간 갱신
     end
 
-    HW[하드웨어\nModbus / RS-485 / USB]
+    HW-->>DRV: 완료 상태 코드
+    AGT->>SRV: POST /commands/{id}/result\n{status: "done"}
+    SRV->>SRV: 다음 스텝 실행
+```
 
-    HTTP --> CMD --> SAFE
-    SAFE -->|통과| DRV
-    SAFE -->|초과| ESTOP[E-STOP 실행]
-    DRV --> HW
-    HW -->|센서 데이터| DRV
-    DRV --> WS --> 중앙백엔드
-    HB --> 중앙백엔드
+---
+
+### Flow 2 — 승인 후 실행 (사용자 확인)
+
+```mermaid
+sequenceDiagram
+    actor 운영자
+    participant SRV as 중앙 서버
+    participant AGT as 장비 에이전트
+    participant HW as 실제 장비
+
+    운영자->>SRV: 시퀀스 생성
+    SRV->>SRV: status = pending_approval
+    SRV-->>운영자: 대시보드 승인 대기 표시
+
+    운영자->>SRV: 승인\nPOST /sequences/{id}/approve
+    SRV->>SRV: pending_approval → running
+
+    SRV->>AGT: POST /execute
+    AGT->>HW: 장비 제어 명령 (Modbus)
+    HW-->>AGT: 실행 중
+
+    Note over 운영자,HW: 이후 Flow 1과 동일
+```
+
+---
+
+### Flow 3 — 이상 감지 → RAG 분석
+
+```mermaid
+sequenceDiagram
+    participant HW as 실제 장비
+    participant AGT as 장비 에이전트
+    participant SRV as 중앙 서버
+    participant RAG as RAG 파이프라인
+    participant DB as PostgreSQL
+    actor 운영자
+
+    HW->>AGT: 센서값 (온도 47°C)
+    AGT->>AGT: 로컬 임계값 체크\n45°C 초과 감지
+
+    AGT->>HW: Modbus Write 0x0200\nE-STOP 즉시 차단
+    AGT->>SRV: POST /anomaly\n{device_id, type: OVER_TEMP,\nvalue: 47.3, threshold: 45.0}
+
+    SRV->>SRV: 관련 시퀀스 전체 중단
+
+    SRV->>RAG: IssuePipeline.query()\n"CHG-A-01 충전 중 온도 47.3°C 초과"
+    RAG->>DB: pgvector 유사 문서 검색\nBATTERY-* 이슈 문서
+    DB-->>RAG: 유사 이슈 반환\n(과온도 사례)
+    RAG-->>SRV: 원인 / 조치방법 / 유사 이력
+
+    SRV->>DB: 이상 이슈 문서 자동 생성\nEQUIP-2026-001_OVER_TEMP.md
+    SRV->>DB: 채팅 세션 자동 생성
+
+    SRV-->>운영자: 대시보드 알림\n+ 챗봇 분석 결과 자동 표시
+    운영자->>SRV: 조치 확인 후 reset
+```
+
+---
+
+### 전체 구성도
+
+```mermaid
+graph TB
+    subgraph 운영자["운영자 PC (브라우저)"]
+        UI[대시보드 /equipment]
+        CHAT[챗봇 /chat]
+    end
+
+    subgraph 중앙서버["중앙 서버"]
+        API[FastAPI]
+        ORC[오케스트레이터\n시퀀스 / 승인 / E-STOP]
+        ANOMALY[이상 감지\n임계값 체크]
+        RAG[RAG 파이프라인\nClaude / Ollama]
+        PG[(PostgreSQL\n이력 / 벡터 / 세션)]
+    end
+
+    subgraph 장비PC1["장비 PC-1"]
+        AGT1[에이전트\nFastAPI + httpx]
+        DRV1[Modbus 드라이버\npymodbus]
+        HW1[충방전기]
+    end
+
+    subgraph 장비PC2["장비 PC-2"]
+        AGT2[에이전트]
+        DRV2[RS-485 드라이버\npyserial]
+        HW2[온도 챔버]
+    end
+
+    UI <-->|HTTP 폴링 2초| API
+    CHAT <-->|SSE 스트리밍| API
+    API --> ORC
+    API --> ANOMALY
+    ANOMALY -->|이상 발생| RAG
+    RAG --> PG
+    ORC --> PG
+    ORC <-->|REST HTTP| AGT1
+    ORC <-->|REST HTTP| AGT2
+    AGT1 -->|하트비트 / 결과 콜백| ANOMALY
+    AGT2 -->|하트비트 / 결과 콜백| ANOMALY
+    AGT1 --- DRV1 --- HW1
+    AGT2 --- DRV2 --- HW2
 ```
 
 | 항목 | 방식 |
 |------|------|
-| 명령 전달 | 중앙 → 장비 REST POST |
-| 상태 수집 | 장비 → 중앙 WebSocket push |
-| 장애 전파 | 장비 에러 → 오케스트레이터 → 전체 라인 ESTOP |
+| 중앙 → 에이전트 | REST POST (명령 전달) |
+| 에이전트 → 중앙 | REST POST (하트비트, 결과 콜백, 이상 보고) |
+| 에이전트 → 장비 | Modbus / RS-485 / OPC-UA (장비별 프로토콜) |
+| 이상 차단 | 에이전트 로컬에서 즉시 (중앙 서버 응답 대기 없음) |
+| AI 분석 | 중앙 서버에서만 (에이전트에 AI 없음) |
 | 재시도 | 타임아웃 시 최대 3회, 이후 ERROR 전환 |
-| 감사 추적 | 모든 명령/응답 PostgreSQL 기록 |
-| 오프라인 감지 | 하트비트 30초 무응답 → OFFLINE, 해당 시퀀스 중단 |
+| 오프라인 감지 | 하트비트 30초 무응답 → OFFLINE 상태 전환 |
 
----
 
 ## 테스트
 
